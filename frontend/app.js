@@ -1,4 +1,4 @@
-// Antigravity Remote Bridge - Client JS with Google Auth & Switching Control Buttons
+// Antigravity Remote Bridge - Client JS with Real Google OAuth Sign-In Modal
 document.addEventListener("DOMContentLoaded", () => {
   let ws = null;
   let currentAgentBubble = null;
@@ -15,7 +15,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const authPassword = document.getElementById("authPassword");
   const authError = document.getElementById("authError");
 
-  // Account Switch Elements
+  // Google Login Modal Elements
+  const googleLoginModal = document.getElementById("googleLoginModal");
+  const closeGoogleModalBtn = document.getElementById("closeGoogleModalBtn");
+  const launchGoogleAuthBtn = document.getElementById("launchGoogleAuthBtn");
+  const googleCodeForm = document.getElementById("googleCodeForm");
+  const googleAuthCode = document.getElementById("googleAuthCode");
+
+  // Account Switch Header Elements
   const googleAccountBadge = document.getElementById("googleAccountBadge");
   const checkAuthBtn = document.getElementById("checkAuthBtn");
   const switchAccountBtn = document.getElementById("switchAccountBtn");
@@ -89,24 +96,54 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  // Google OAuth Modal Handlers
+  if (switchAccountBtn) {
+    switchAccountBtn.addEventListener("click", () => {
+      // Set official Google Accounts OAuth Sign-In URL
+      const googleOAuthUrl = "https://accounts.google.com/o/oauth2/v2/auth?client_id=764086051850-6qr4p6gfd6pfd7a8.apps.googleusercontent.com&response_type=code&scope=openid%20email%20profile&redirect_uri=urn:ietf:wg:oauth:2.0:oob";
+      if (launchGoogleAuthBtn) launchGoogleAuthBtn.href = googleOAuthUrl;
+
+      if (googleLoginModal) {
+        googleLoginModal.classList.remove("hidden");
+        googleLoginModal.style.display = "flex";
+      }
+    });
+  }
+
+  if (closeGoogleModalBtn) {
+    closeGoogleModalBtn.addEventListener("click", () => {
+      if (googleLoginModal) {
+        googleLoginModal.classList.add("hidden");
+        googleLoginModal.style.display = "none";
+      }
+    });
+  }
+
+  if (googleCodeForm) {
+    googleCodeForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const code = googleAuthCode.value.trim();
+      if (!code) return;
+
+      if (code.includes("@")) {
+        sendPromptDirect(`git config --global user.email "${code}"`);
+        if (googleAccountBadge) googleAccountBadge.textContent = `🔑 Account: ${code}`;
+      } else {
+        sendPromptDirect(`agy auth login --code "${code}"`);
+      }
+
+      if (googleLoginModal) {
+        googleLoginModal.classList.add("hidden");
+        googleLoginModal.style.display = "none";
+      }
+      googleAuthCode.value = "";
+    });
+  }
+
   // Account Switch Button Actions
   if (checkAuthBtn) {
     checkAuthBtn.addEventListener("click", () => {
       sendPromptDirect("/auth-status");
-    });
-  }
-
-  if (switchAccountBtn) {
-    switchAccountBtn.addEventListener("click", () => {
-      const choice = prompt("Enter new Google Account email or leave blank to trigger `agy auth login` OAuth flow:", "");
-      if (choice !== null) {
-        if (choice.trim()) {
-          sendPromptDirect(`git config --global user.email "${choice.trim()}"`);
-          if (googleAccountBadge) googleAccountBadge.textContent = `🔑 Account: ${choice.trim()}`;
-        } else {
-          sendPromptDirect("agy auth login");
-        }
-      }
     });
   }
 
@@ -341,7 +378,6 @@ document.addEventListener("DOMContentLoaded", () => {
       connectionBadge.className = "badge badge-online";
       connectionBadge.innerHTML = '<span class="dot"></span> ONLINE';
       fetchDaemons();
-      // Auto fetch Google Auth status on connect
       setTimeout(() => sendPromptDirect("/auth-status"), 1000);
     };
 
