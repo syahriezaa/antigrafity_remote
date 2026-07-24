@@ -15,8 +15,9 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 8000;
 const BRIDGE_PASSWORD = process.env.BRIDGE_PASSWORD || 'antigravity_secret_123';
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '622917399194-s3a2ukn8dkla9sne3qeikgbpas8rgaen.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+const VPS_BASE_URL = process.env.VPS_BASE_URL || 'https://dev.junaidi-ai.com';
 
 const ACTIVE_TOKENS = new Set();
 
@@ -44,9 +45,8 @@ app.get('/api/auth/google', (req, res) => {
     `);
   }
 
-  const host = req.headers.host || `localhost:${PORT}`;
-  const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
-  const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
+  // Exact matching redirect URI registered in Google Console JSON
+  const redirectUri = `${VPS_BASE_URL.replace(/\/$/, '')}/api/auth/google/callback`;
   const scope = encodeURIComponent('openid email profile');
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
 
@@ -61,20 +61,15 @@ app.get('/api/auth/google/callback', async (req, res) => {
   }
 
   try {
-    const host = req.headers.host || `localhost:${PORT}`;
-    const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
-    const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
+    const redirectUri = `${VPS_BASE_URL.replace(/\/$/, '')}/api/auth/google/callback`;
 
     const params = new URLSearchParams({
       code,
       client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
       redirect_uri: redirectUri,
       grant_type: 'authorization_code'
     });
-
-    if (GOOGLE_CLIENT_SECRET) {
-      params.append('client_secret', GOOGLE_CLIENT_SECRET);
-    }
 
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -127,9 +122,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
 
 // System Status Endpoint
 app.get('/api/status', (req, res) => {
-  const host = req.headers.host || `localhost:${PORT}`;
-  const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
-  const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
+  const redirectUri = `${VPS_BASE_URL.replace(/\/$/, '')}/api/auth/google/callback`;
 
   res.json({
     vps_status: 'online',
@@ -341,7 +334,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(` [Antigravity Express + Node.js VPS Server Running]`);
   console.log(`============================================================`);
   console.log(`[+] Web UI & REST API listening on http://0.0.0.0:${PORT}`);
-  console.log(`[+] Google Client ID Active: ${GOOGLE_CLIENT_ID}`);
-  console.log(`[+] Dynamic Google OAuth Endpoint: /api/auth/google`);
+  console.log(`[+] Google Client ID: ${GOOGLE_CLIENT_ID || 'Configured via .env'}`);
+  console.log(`[+] Google Redirect URI: ${VPS_BASE_URL}/api/auth/google/callback`);
   console.log(`============================================================`);
 });
