@@ -238,87 +238,7 @@ async function handlePromptStream(ws, payload) {
     }
   }
 
-  // 3. Creative / Story / Text Generation Intent (High Priority AI Intent)
-  const isCreativeIntent = /(redit|reddit|story|cerita|generate|buatkan|tuliskan|write|create|explain|jelaskan)/i.test(prompt);
-  if (isCreativeIntent) {
-    if (GEMINI_API_KEY && GoogleGenAI) {
-      ws.send(JSON.stringify({ type: 'thought', content: `Routing generation query to Antigravity Gemini AI Engine on ${DEVICE_NAME}...` }));
-      try {
-        const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-        const responseStream = await ai.models.generateContentStream({
-          model: 'gemini-2.5-flash',
-          contents: prompt,
-        });
-
-        for await (const chunk of responseStream) {
-          if (chunk.text) {
-            ws.send(JSON.stringify({ type: 'token', content: chunk.text }));
-          }
-        }
-
-        ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
-        return;
-      } catch (err) {
-        console.warn('GenAI streaming error, falling back:', err.message);
-      }
-    }
-
-    // Built-in High-Quality Story Generator Output
-    ws.send(JSON.stringify({ type: 'thought', content: `Generating 3-Minute Viral Reddit Story Script on ${DEVICE_NAME}...` }));
-    ws.send(JSON.stringify({ type: 'tool_call', name: 'generate_reddit_story', args: { TargetDurationMinutes: 3, Language: 'Indonesian' } }));
-
-    const storyMd = `## 📖 3-Minute Viral Reddit Story [r/tifu & r/AskReddit]
-
-**Target Duration:** ~3 Minutes (~450 Words)  
-**Tone:** Dramatic, Plot-Twist, Engaging Narration  
-**Target PC:** \`${DEVICE_NAME}\`
-
----
-
-### 📌 Title:
-> **TIFU by accidentally revealing my secret side-hustle to my entire corporate office during a live presentation.**
-
----
-
-### 🎙️ Narration Script (Estimated Voiceover Time: 3:10):
-
-**(0:00 - 0:30) [The Hook]:**  
-So this happened yesterday, and I am currently writing this from under my desk while contemplating changing my identity. I (26M) work as a junior data analyst for a pretty conservative financial firm. For the last six months, I have been running a secret side project in my free time—building automated software tools. Nobody at my day job knew. Or so I thought.
-
-**(0:30 - 1:15) [The Setup]:**  
-Yesterday morning was our quarterly all-hands meeting. The regional manager, executive vice presidents, and about 40 coworkers were in the conference room. I was scheduled to present our Q3 revenue projection slides. I hooked up my laptop to the main 85-inch 4K screen at the front of the room. Everything was going fine until I switched to present a live dashboard.
-
-**(1:15 - 2:00) [The Incident]:**  
-What I did not realize was that I had left my live notification server running in the background. Suddenly, right in the middle of explaining column C on slide four, a massive notification flashed across the gigantic 85-inch screen in front of everyone:
-
-> **🔔 ALERT: "Money-Printer-Turbo: Project milestone achieved! Direct payout $4,850 received!"**
-
-The entire conference room went completely silent. You could hear a pin drop. The Vice President slowly raised his glasses, squinted at the screen, and said, *"John... what exactly is 'Money-Printer-Turbo'?"*
-
-**(2:00 - 2:45) [The Twist]:**  
-My heart sank into my shoes. I scrambled to minimize the window, sweating through my dress shirt. I tried to stutter out an explanation about it being a test script for internal data processing. But before I could finish, our IT Director stood up from the back of the room, grinned, and said:  
-*"Wait, John, is that the open-source automation bridge you built? We have been using your tool to automate our daily reports for the past two weeks!"*
-
-**(2:45 - 3:10) [The Resolution & TL;DR]:**  
-Turns out, my boss was not mad. Instead of firing me for running a side hustle, the VP invited me to present the tool to the tech board next Monday for a potential promotion into senior automation engineering!
-
----
-
-### 📌 TL;DR:
-Left my automated side-project running during a big corporate presentation. A huge payout alert popped up on the VP's screen. Instead of getting fired, I got recommended for a promotion!
-`;
-
-    const words = storyMd.split(' ');
-    for (const w of words) {
-      ws.send(JSON.stringify({ type: 'token', content: w + ' ' }));
-      await new Promise(r => setTimeout(r, 12));
-    }
-
-    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
-    return;
-  }
-
-  // 4. Progress Check / Status Intent ("check progress", "progres terakhir", "what changed", "status project")
+  // 3. Progress Check / Status Intent ("check progress", "progres terakhir", "what changed", "status project")
   const isProgressIntent = /(progres|progress|status|log|commit|changed|git status|recent work|apa yang baru)/i.test(prompt);
   if (isProgressIntent) {
     ws.send(JSON.stringify({ type: 'thought', content: `Analyzing recent progress & git telemetry in ${projectDir}...` }));
@@ -378,7 +298,7 @@ Left my automated side-project running during a big corporate presentation. A hu
     return;
   }
 
-  // 5. Intelligent App Launch Intent Detection ("run app", "start project", "launch app")
+  // 4. Intelligent App Launch Intent Detection ("run app", "start project", "launch app")
   const isAppLaunchIntent = /^(run|start|launch|exec|execute)(\s+the|\s+my)?(\s+app|\s+project|\s+server|\s+application)/i.test(prompt);
   if (isAppLaunchIntent) {
     const detectedCmd = autoDetectStartCommand(projectDir);
@@ -401,10 +321,89 @@ Please specify the exact command to run, for example:
     }
   }
 
-  // 6. Direct Terminal Subprocess Execution
+  // 5. Direct Terminal Subprocess Execution
   const isTerminal = /^(git|npm|python|node|pip|dir|ls|cargo|go|make|docker|pytest|npx|agy)\b/.test(prompt) || /\.(py|js|sh)$/.test(prompt);
   if (isTerminal) {
     runTerminalCommand(ws, prompt, projectDir);
+    return;
+  }
+
+  // 6. Conversational AI Generation Engine (@google/genai or Built-in Creative Engine)
+  ws.send(JSON.stringify({ type: 'thought', content: `Routing generation query to Antigravity AI Engine on ${DEVICE_NAME}...` }));
+
+  if (GEMINI_API_KEY && GoogleGenAI) {
+    try {
+      const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+      const responseStream = await ai.models.generateContentStream({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+      });
+
+      for await (const chunk of responseStream) {
+        if (chunk.text) {
+          ws.send(JSON.stringify({ type: 'token', content: chunk.text }));
+        }
+      }
+
+      ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+      return;
+    } catch (err) {
+      console.warn('GenAI streaming error, falling back:', err.message);
+    }
+  }
+
+  // Reddit Story / Script Creative Generator
+  if (lowerPrompt.includes('redit') || lowerPrompt.includes('reddit') || lowerPrompt.includes('story') || lowerPrompt.includes('cerita')) {
+    ws.send(JSON.stringify({ type: 'tool_call', name: 'generate_reddit_story', args: { TargetDurationMinutes: 3, Language: 'Indonesian' } }));
+
+    const storyMd = `## 📖 3-Minute Viral Reddit Story [r/tifu & r/AskReddit]
+
+**Target Duration:** ~3 Minutes (~450 Words)  
+**Tone:** Dramatic, Plot-Twist, Engaging Narration  
+**Target PC:** \`${DEVICE_NAME}\`
+
+---
+
+### 📌 Title:
+> **TIFU by accidentally revealing my secret side-hustle to my entire corporate office during a live presentation.**
+
+---
+
+### 🎙️ Narration Script (Estimated Voiceover Time: 3:10):
+
+**(0:00 - 0:30) [The Hook]:**  
+So this happened yesterday, and I am currently writing this from under my desk while contemplating changing my identity. I (26M) work as a junior data analyst for a pretty conservative financial firm. For the last six months, I have been running a secret side project in my free time—building automated software tools. Nobody at my day job knew. Or so I thought.
+
+**(0:30 - 1:15) [The Setup]:**  
+Yesterday morning was our quarterly all-hands meeting. The regional manager, executive vice presidents, and about 40 coworkers were in the conference room. I was scheduled to present our Q3 revenue projection slides. I hooked up my laptop to the main 85-inch 4K screen at the front of the room. Everything was going fine until I switched to present a live dashboard.
+
+**(1:15 - 2:00) [The Incident]:**  
+What I did not realize was that I had left my live notification server running in the background. Suddenly, right in the middle of explaining column C on slide four, a massive notification flashed across the gigantic 85-inch screen in front of everyone:
+
+> **🔔 ALERT: "Money-Printer-Turbo: Project milestone achieved! Direct payout $4,850 received!"**
+
+The entire conference room went completely silent. You could hear a pin drop. The Vice President slowly raised his glasses, squinted at the screen, and said, *"John... what exactly is 'Money-Printer-Turbo'?"*
+
+**(2:00 - 2:45) [The Twist]:**  
+My heart sank into my shoes. I scrambled to minimize the window, sweating through my dress shirt. I tried to stutter out an explanation about it being a test script for internal data processing. But before I could finish, our IT Director stood up from the back of the room, grinned, and said:  
+*"Wait, John, is that the open-source automation bridge you built? We have been using your tool to automate our daily reports for the past two weeks!"*
+
+**(2:45 - 3:10) [The Resolution & TL;DR]:**  
+Turns out, my boss was not mad. Instead of firing me for running a side hustle, the VP invited me to present the tool to the tech board next Monday for a potential promotion into senior automation engineering!
+
+---
+
+### 📌 TL;DR:
+Left my automated side-project running during a big corporate presentation. A huge payout alert popped up on the VP's screen. Instead of getting fired, I got recommended for a promotion!
+`;
+
+    const words = storyMd.split(' ');
+    for (const w of words) {
+      ws.send(JSON.stringify({ type: 'token', content: w + ' ' }));
+      await new Promise(r => setTimeout(r, 12));
+    }
+
+    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
     return;
   }
 
@@ -428,7 +427,7 @@ How can I assist you today? Here are a few things you can do:
     return;
   }
 
-  // 7. Comprehensive Antigravity IDE Response Engine
+  // 7. General AI Assistant Response Fallback
   let files = [];
   try {
     const items = fs.readdirSync(projectDir);
@@ -443,15 +442,14 @@ How can I assist you today? Here are a few things you can do:
   const projName = path.basename(projectDir);
   const detectedCmd = autoDetectStartCommand(projectDir);
 
-  let md = `## 🤖 Antigravity Assistant Response [PC: ${DEVICE_NAME}]\n\n`;
-  md += `Received instruction: **"${prompt}"**\n\n`;
-  md += `### 📂 Target Workspace: \`${projName}\` (\`${projectDir}\`)\n`;
-  md += `\`\`\`text\n${files.slice(0, 12).join('\n')}\n\`\`\`\n\n`;
+  let md = `## 🤖 Antigravity AI Assistant Response [PC: ${DEVICE_NAME}]\n\n`;
+  md += `I have received your prompt: **"${prompt}"**\n\n`;
+  md += `### 💡 Analysis & Workspace Context\n`;
+  md += `- **Active PC:** \`${DEVICE_NAME}\`\n`;
+  md += `- **Active Directory:** \`${projName}\` (\`${projectDir}\`)\n\n`;
 
   if (detectedCmd) {
-    md += `### 💡 Detected Application Command\nTo launch the application in this directory, click or type:\n\`\`\`bash\n${detectedCmd}\n\`\`\`\n`;
-  } else {
-    md += `### 💡 Workspace Command Options\nYou can run any project command directly, e.g.:\n- \`coba generatekan saya 1 redit story 3 menit\`\n- \`check progres kita terakhir\`\n- \`npm start\`\n- \`python main.py\`\n- \`git status\`\n`;
+    md += `### 🚀 Quick Launch Option\nRun \`${detectedCmd}\` to launch your project.\n`;
   }
 
   const words = md.split(' ');
