@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Antigravity Remote Bridge - Multi-PC Control</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- Highlight.js for code formatting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <!-- Marked.js for markdown rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <!-- Password Auth Modal Overlay -->
+  <div id="authModal" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 400px; text-align: center;">
+      <div class="modal-header" style="justify-content: center;">
+        <div class="logo-icon" style="margin-bottom: 12px;">🔒</div>
+      </div>
+      <h2 style="font-size: 1.25rem; color: var(--text-primary); margin-bottom: 6px;">Secure Remote Login</h2>
+      <p class="modal-desc">Enter your Antigravity Bridge Password to unlock remote access.</p>
+      
+      <form id="authForm" style="margin-top: 16px;">
+        <div class="form-group">
+          <input type="password" id="authPassword" placeholder="Enter Bridge Password..." style="font-size: 1rem; text-align: center;" required />
+        </div>
+        <div id="authError" style="color: #EF4444; font-size: 0.78rem; margin-bottom: 12px; display: none;">Invalid password. Please try again.</div>
+        <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">Unlock Remote Bridge 🔑</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="app-layout">
+    <!-- Liquid Glass Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>Antigravity <span>Multi-PC Remote Bridge</span></h1>
+          <p class="subtitle">Select & Remote Any Connected PC Workstation</p>
+        </div>
+      </div>
+
+      <div class="status-bar">
+        <div id="connectionBadge" class="badge badge-offline">
+          <span class="dot"></span> <span class="label">Connecting...</span>
+        </div>
+        <div id="sdkBadge" class="badge badge-info">
+          <span class="label">Checking PCs...</span>
+        </div>
+        <button id="webhookModalBtn" class="btn btn-secondary icon-btn" title="Remote Messaging Settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+          </svg>
+          Notifications
+        </button>
+      </div>
+    </header>
+
+    <!-- Sub-Header: Multi-PC & Project Selector Bar -->
+    <div class="project-bar">
+      <div class="project-selector-group">
+        <label for="deviceSelect">🖥️ Target PC:</label>
+        <select id="deviceSelect" class="project-select" style="max-width: 200px;">
+          <option value="">Scanning PCs...</option>
+        </select>
+
+        <label for="projectSelect" style="margin-left: 10px;">📁 Workspace:</label>
+        <select id="projectSelect" class="project-select">
+          <option value="">Loading projects...</option>
+        </select>
+        <input type="text" id="customProjectPath" placeholder="Or enter custom path e.g. C:\path\to\project" class="custom-path-input" />
+      </div>
+
+      <div class="direct-mode-toggle">
+        <input type="checkbox" id="directModeCheck" checked />
+        <label for="directModeCheck">⚡ Direct Mode</label>
+      </div>
+    </div>
+
+    <!-- Main Container -->
+    <main class="app-main">
+      <!-- Left Panel: Console Stream -->
+      <section class="console-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            Console Stream
+          </div>
+          <button id="clearChatBtn" class="btn-text">Clear Stream</button>
+        </div>
+
+        <div id="chatMessages" class="chat-messages">
+          <div class="system-welcome">
+            <div class="welcome-card">
+              <h3>⚡ Complete Slash Skill Recommendations Active</h3>
+              <p>Type <code>/</code> in the input box to open all 12 recommended slash commands with live search filtering!</p>
+              <div class="quick-prompts">
+                <button class="chip-btn slash-chip" data-prompt="/teamwork-preview Spawn subagent team">👥 /teamwork-preview</button>
+                <button class="chip-btn slash-chip" data-prompt="/goal Refactor project structure">🎯 /goal</button>
+                <button class="chip-btn slash-chip" data-prompt="/auth-status Check Google Auth">🔑 /auth-status</button>
+                <button class="chip-btn slash-chip" data-prompt="git status">Git Status</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Input Box with Slash Command Popup -->
+        <div class="chat-input-container">
+          <!-- Filterable Slash Commands Popup -->
+          <div id="slashMenu" class="slash-menu hidden">
+            <div class="slash-item" data-cmd="/teamwork-preview ">👥 <strong>/teamwork-preview</strong> - Spawn multi-agent subagent team preview</div>
+            <div class="slash-item" data-cmd="/goal ">🎯 <strong>/goal</strong> - Run long-running thorough execution</div>
+            <div class="slash-item" data-cmd="/schedule ">⏱️ <strong>/schedule</strong> - Set a recurring timer or cron notification</div>
+            <div class="slash-item" data-cmd="/browser ">🌐 <strong>/browser</strong> - Run browser automation & testing</div>
+            <div class="slash-item" data-cmd="/grill-me">🔥 <strong>/grill-me</strong> - Interactive design & plan interview</div>
+            <div class="slash-item" data-cmd="/learn ">🧠 <strong>/learn</strong> - Persist custom preferences/instructions</div>
+            <div class="slash-item" data-cmd="/auth-status">🔑 <strong>/auth-status</strong> - Check active Google Account for target PC</div>
+            <div class="slash-item" data-cmd="/auth-logout">🚪 <strong>/auth-logout</strong> - Log out Google Account from target PC</div>
+            <div class="slash-item" data-cmd="/git-status">🌿 <strong>/git-status</strong> - View target PC git workspace status</div>
+            <div class="slash-item" data-cmd="/projects">📁 <strong>/projects</strong> - Inspect project directory files</div>
+            <div class="slash-item" data-cmd="/status">📊 <strong>/status</strong> - Display system execution status</div>
+            <div class="slash-item" data-cmd="/help">❓ <strong>/help</strong> - Display full slash skills reference</div>
+          </div>
+
+          <form id="chatForm" class="chat-form">
+            <textarea id="promptInput" placeholder="Type / for all recommended slash commands (/goal, /teamwork-preview, /auth-status)..." rows="2"></textarea>
+            <button type="submit" id="sendBtn" class="btn btn-primary">
+              <span>Send Request</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          </form>
+        </div>
+      </section>
+
+      <!-- Right Panel: Agent Telemetry & Pixel Office -->
+      <section class="telemetry-panel">
+        <div class="tabs-header">
+          <button class="tab-btn active" data-tab="tab-office">
+            🏢 Pixel Office
+          </button>
+          <button class="tab-btn" data-tab="tab-thoughts">
+            🧠 Reasoning & Tools
+          </button>
+          <button class="tab-btn" data-tab="tab-logs">
+            📜 Sessions
+          </button>
+        </div>
+
+        <div class="tab-content">
+          <!-- Tab 1: Interactive Walking Pixel Office -->
+          <div id="tab-office" class="tab-pane active">
+            <div class="pane-header">
+              <span>Subagent Conversational Floor</span>
+              <span id="officeStatusBadge" class="count-badge" style="background:rgba(100, 116, 139, 0.15); color:#64748B;">Subagents Idle (Despawned)</span>
+            </div>
+            
+            <div class="office-floor-container">
+              <!-- Pixel Office 2D Walking Map -->
+              <div class="office-map" id="officeMap">
+                <!-- Furniture / Locations -->
+                <div class="furniture" id="station-architect">💻 Alex's Desk</div>
+                <div class="furniture" id="station-backend">🖥️ Maya's Desk</div>
+                <div class="furniture" id="station-frontend">🎨 Leo's Desk</div>
+                <div class="furniture" id="station-qa">📊 Sam's Desk</div>
+                <div class="furniture" id="station-table">🤝 Meeting Table</div>
+                <div class="furniture" id="station-coffee">☕ Coffee Bar</div>
+
+                <!-- Walking Agent 1: Alex (Architect) -->
+                <div class="walking-agent" id="agent-alex" style="top: 30px; left: 40px;">
+                  <div class="speech-cloud" id="cloud-alex">Standing by...</div>
+                  <div class="avatar-sprite">👨‍💻</div>
+                  <div class="agent-tag">Alex (Architect)</div>
+                </div>
+
+                <!-- Walking Agent 2: Maya (Backend) -->
+                <div class="walking-agent" id="agent-maya" style="top: 30px; left: 240px;">
+                  <div class="speech-cloud" id="cloud-maya">Standing by...</div>
+                  <div class="avatar-sprite">👩‍💻</div>
+                  <div class="agent-tag">Maya (Backend)</div>
+                </div>
+
+                <!-- Walking Agent 3: Leo (Frontend) -->
+                <div class="walking-agent" id="agent-leo" style="top: 260px; left: 40px;">
+                  <div class="speech-cloud" id="cloud-leo">Standing by...</div>
+                  <div class="avatar-sprite">🎨</div>
+                  <div class="agent-tag">Leo (Frontend)</div>
+                </div>
+
+                <!-- Walking Agent 4: Sam (QA) -->
+                <div class="walking-agent" id="agent-sam" style="top: 260px; left: 240px;">
+                  <div class="speech-cloud" id="cloud-sam">Standing by...</div>
+                  <div class="avatar-sprite">🧪</div>
+                  <div class="agent-tag">Sam (QA & Testing)</div>
+                </div>
+              </div>
+
+              <!-- Breakroom Status Bar -->
+              <div class="breakroom-bar">
+                <span>💬 Multi-PC Tunnel Registry</span>
+                <button id="triggerMeetingBtn" class="btn btn-secondary" style="padding: 2px 10px; font-size: 0.72rem;">🤝 Call Team Meeting</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 2: Thoughts & Tools -->
+          <div id="tab-thoughts" class="tab-pane">
+            <div class="pane-header">
+              <span>Live Agent Thoughts & Tool Call Executions</span>
+              <span id="thoughtCountBadge" class="count-badge">0 Events</span>
+            </div>
+            <div id="thoughtFeed" class="thought-feed">
+              <div class="empty-state">No active thoughts recorded. Send a request to see telemetry.</div>
+            </div>
+          </div>
+
+          <!-- Tab 3: Transcript JSONL Logs -->
+          <div id="tab-logs" class="tab-pane">
+            <div class="pane-header">
+              <span>Local Session Transcripts (`transcript.jsonl`)</span>
+              <button id="refreshLogsBtn" class="btn-text">Refresh Logs</button>
+            </div>
+            <div id="logsFeed" class="logs-feed">
+              <div class="empty-state">Click Refresh to scan session logs.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Remote Webhook Configuration Modal -->
+  <div id="webhookModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>🔔 Remote Messaging & Notification Config</h3>
+        <button id="closeModalBtn" class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc">Configure your Telegram Bot, WhatsApp Webhook, or Pushover to get notified on your phone when Antigravity completes tasks remotely.</p>
+
+        <form id="webhookForm">
+          <div class="form-group">
+            <label>Telegram Bot Token</label>
+            <input type="text" id="tgToken" placeholder="e.g. 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ" />
+          </div>
+
+          <div class="form-group">
+            <label>Telegram Chat ID</label>
+            <input type="text" id="tgChatId" placeholder="e.g. 987654321" />
+          </div>
+
+          <div class="form-group">
+            <label>WhatsApp Webhook URL</label>
+            <input type="text" id="waUrl" placeholder="e.g. https://your-wa-bridge.example.com/webhook" />
+          </div>
+
+          <div class="form-group">
+            <label>Pushover User Key (Optional)</label>
+            <input type="text" id="poUser" placeholder="User Key" />
+          </div>
+
+          <div class="form-group">
+            <label>Pushover API Token (Optional)</label>
+            <input type="text" id="poToken" placeholder="API Token" />
+          </div>
+
+          <div class="form-checkbox">
+            <input type="checkbox" id="autoNotifyCheck" checked />
+            <label for="autoNotifyCheck">Auto-send notification to remote phone on response completion</label>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" id="testNotifyBtn" class="btn btn-secondary">Send Test Alert</button>
+            <button type="submit" class="btn btn-primary">Save Settings</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
