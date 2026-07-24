@@ -1,10 +1,11 @@
+require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawn, execSync } = require('child_process');
 const WebSocket = require('ws');
 
-const VPS_SERVER_URL = process.env.VPS_SERVER_URL || 'ws://localhost:8000';
+const VPS_SERVER_URL = process.env.VPS_SERVER_URL || 'ws://dev.junaidi-ai.com:8000';
 const BRIDGE_PASSWORD = process.env.BRIDGE_PASSWORD || 'antigravity_secret_123';
 const DEVICE_NAME = process.env.DEVICE_NAME || os.hostname();
 
