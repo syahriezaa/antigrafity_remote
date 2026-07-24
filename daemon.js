@@ -75,6 +75,11 @@ function getBrowserSessionInfo() {
 }
 
 function autoDetectStartCommand(projectDir) {
+  // 1. Direct workspace script check
+  if (fs.existsSync(path.join(projectDir, 'start_servers.bat'))) return 'start_servers.bat';
+  if (fs.existsSync(path.join(projectDir, 'start_servers.ps1'))) return 'powershell -ExecutionPolicy Bypass -File start_servers.ps1';
+  if (fs.existsSync(path.join(projectDir, 'start_servers.sh'))) return 'bash start_servers.sh';
+
   const pkgFile = path.join(projectDir, 'package.json');
   if (fs.existsSync(pkgFile)) {
     try {
@@ -92,18 +97,27 @@ function autoDetectStartCommand(projectDir) {
   if (fs.existsSync(path.join(projectDir, 'main.py'))) return 'python main.py';
   if (fs.existsSync(path.join(projectDir, 'app.py'))) return 'python app.py';
 
-  // Check subdirectories
+  // 2. Antigravity IDE Subdirectory Deep Scan
   try {
     const items = fs.readdirSync(projectDir);
     for (const item of items) {
       const sub = path.join(projectDir, item);
-      if (fs.statSync(sub).isDirectory()) {
+      if (fs.statSync(sub).isDirectory() && !item.startsWith('.') && item !== 'node_modules') {
+        // Check for start_servers in subfolder
+        if (fs.existsSync(path.join(sub, 'start_servers.bat'))) return `cd ${item} && start_servers.bat`;
+        if (fs.existsSync(path.join(sub, 'start_servers.ps1'))) return `cd ${item} && powershell -ExecutionPolicy Bypass -File start_servers.ps1`;
+
+        // Check backend subfolder (e.g. money-printer-interface/backend/main.py)
+        const backendMain = path.join(sub, 'backend', 'main.py');
+        if (fs.existsSync(backendMain)) return `cd ${item}/backend && python main.py`;
+
+        // Check subfolder package.json (e.g. money-printer-interface/frontend)
         const subPkg = path.join(sub, 'package.json');
         if (fs.existsSync(subPkg)) {
           try {
             const pkg = JSON.parse(fs.readFileSync(subPkg, 'utf-8'));
             if (pkg.scripts && (pkg.scripts.start || pkg.scripts.dev)) {
-              return `npm --prefix ${sub} start`;
+              return `cd ${item} && npm run ${pkg.scripts.dev ? 'dev' : 'start'}`;
             }
           } catch (e) {}
         }
@@ -238,7 +252,18 @@ async function handlePromptStream(ws, payload) {
     }
   }
 
-  // 3. Progress Check / Status Intent ("check progress", "progres terakhir", "what changed", "status project")
+  // 3. Intelligent App Launch & Generation Intent ("run app nya dan generatekan melalui be nya", "start server", "run app")
+  const isAppLaunchIntent = /(run|start|launch|exec|execute)(\s+the|\s+my)?(\s+app|\s+project|\s+server|\s+application|\s+be|\s+backend)/i.test(prompt);
+  if (isAppLaunchIntent) {
+    const detectedCmd = autoDetectStartCommand(projectDir);
+    if (detectedCmd) {
+      ws.send(JSON.stringify({ type: 'thought', content: `Antigravity IDE Subdirectory Resolver: Launching project backend using \`${detectedCmd}\` in \`${projectDir}\`...` }));
+      runTerminalCommand(ws, detectedCmd, projectDir);
+      return;
+    }
+  }
+
+  // 4. Progress Check / Status Intent ("check progress", "progres terakhir", "what changed", "status project")
   const isProgressIntent = /(progres|progress|status|log|commit|changed|git status|recent work|apa yang baru)/i.test(prompt);
   if (isProgressIntent) {
     ws.send(JSON.stringify({ type: 'thought', content: `Analyzing recent progress & git telemetry in ${projectDir}...` }));
@@ -296,29 +321,6 @@ async function handlePromptStream(ws, payload) {
 
     ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
     return;
-  }
-
-  // 4. Intelligent App Launch Intent Detection ("run app", "start project", "launch app")
-  const isAppLaunchIntent = /^(run|start|launch|exec|execute)(\s+the|\s+my)?(\s+app|\s+project|\s+server|\s+application)/i.test(prompt);
-  if (isAppLaunchIntent) {
-    const detectedCmd = autoDetectStartCommand(projectDir);
-    if (detectedCmd) {
-      ws.send(JSON.stringify({ type: 'thought', content: `Detected start command for ${projectDir}: ${detectedCmd}` }));
-      runTerminalCommand(ws, detectedCmd, projectDir);
-      return;
-    } else {
-      const md = `⚠️ **No start script automatically detected in workspace:** \`${projectDir}\`
-
-Please specify the exact command to run, for example:
-- \`npm start\`
-- \`npm run dev\`
-- \`python app.py\`
-- \`node server.js\`
-`;
-      ws.send(JSON.stringify({ type: 'token', content: md }));
-      ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
-      return;
-    }
   }
 
   // 5. Direct Terminal Subprocess Execution
@@ -416,7 +418,7 @@ How can I assist you today? Here are a few things you can do:
 
 - 📖 **Story & Script Generation**: Type \`coba generatekan saya 1 redit story 3 menit\`
 - 📊 **Audit Recent Work**: Type \`check progres kita terakhir\`
-- 🚀 **Run Active Application**: Type \`run the app\` or \`npm start\`
+- 🚀 **Run Active Application**: Type \`run app nya dan generatekan melalui be nya\` or \`npm start\`
 - 🔑 **Check Google Auth Status**: Type \`/auth-status\`
 - 🌐 **Web Automation**: Type \`/browser https://google.com\`
 - 👥 **Multi-Agent Preview**: Type \`/teamwork-preview Build a web app\`
@@ -449,7 +451,7 @@ How can I assist you today? Here are a few things you can do:
   md += `- **Active Directory:** \`${projName}\` (\`${projectDir}\`)\n\n`;
 
   if (detectedCmd) {
-    md += `### 🚀 Quick Launch Option\nRun \`${detectedCmd}\` to launch your project.\n`;
+    md += `### 🚀 Quick Launch Option\nRun \`${detectedCmd}\` to launch your project backend.\n`;
   }
 
   const words = md.split(' ');
