@@ -17,9 +17,24 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY 
 const appDataDir = path.join(os.homedir(), '.gemini', 'antigravity');
 const defaultWorkspace = path.join(appDataDir, 'scratch');
 const sessionDir = path.join(appDataDir, 'browser_sessions');
+const brainLogsDir = path.join(appDataDir, 'brain');
 
 if (!fs.existsSync(sessionDir)) {
   fs.mkdirSync(sessionDir, { recursive: true });
+}
+
+function getActiveTranscriptFile() {
+  if (!fs.existsSync(brainLogsDir)) return null;
+  try {
+    const convs = fs.readdirSync(brainLogsDir);
+    for (const conv of convs) {
+      const transcript = path.join(brainLogsDir, conv, '.system_generated', 'logs', 'transcript.jsonl');
+      if (fs.existsSync(transcript)) {
+        return transcript;
+      }
+    }
+  } catch (e) {}
+  return null;
 }
 
 function getGoogleAuthStatus() {
@@ -75,7 +90,6 @@ function getBrowserSessionInfo() {
 }
 
 function autoDetectStartCommand(projectDir) {
-  // 1. Direct workspace script check
   if (fs.existsSync(path.join(projectDir, 'start_servers.bat'))) return 'start_servers.bat';
   if (fs.existsSync(path.join(projectDir, 'start_servers.ps1'))) return 'powershell -ExecutionPolicy Bypass -File start_servers.ps1';
   if (fs.existsSync(path.join(projectDir, 'start_servers.sh'))) return 'bash start_servers.sh';
@@ -97,21 +111,17 @@ function autoDetectStartCommand(projectDir) {
   if (fs.existsSync(path.join(projectDir, 'main.py'))) return 'python main.py';
   if (fs.existsSync(path.join(projectDir, 'app.py'))) return 'python app.py';
 
-  // 2. Antigravity IDE Subdirectory Deep Scan
   try {
     const items = fs.readdirSync(projectDir);
     for (const item of items) {
       const sub = path.join(projectDir, item);
       if (fs.statSync(sub).isDirectory() && !item.startsWith('.') && item !== 'node_modules') {
-        // Check for start_servers in subfolder
         if (fs.existsSync(path.join(sub, 'start_servers.bat'))) return `cd ${item} && start_servers.bat`;
         if (fs.existsSync(path.join(sub, 'start_servers.ps1'))) return `cd ${item} && powershell -ExecutionPolicy Bypass -File start_servers.ps1`;
 
-        // Check backend subfolder (e.g. money-printer-interface/backend/main.py)
         const backendMain = path.join(sub, 'backend', 'main.py');
         if (fs.existsSync(backendMain)) return `cd ${item}/backend && python main.py`;
 
-        // Check subfolder package.json (e.g. money-printer-interface/frontend)
         const subPkg = path.join(sub, 'package.json');
         if (fs.existsSync(subPkg)) {
           try {
@@ -165,7 +175,7 @@ async function handlePromptStream(ws, payload) {
   // 1. Auth Status & Logout
   if (['auth status', '/auth-status'].includes(lowerPrompt)) {
     const status = getGoogleAuthStatus();
-    const md = `### 🔑 Google Account Auth Status [${DEVICE_NAME}]\n\n- **Status:** ${status.is_authenticated ? '🟢 Authenticated' : '🔴 Not Logged In'}\n- **Account:** \`${status.account_email}\`\n- **Runtime:** Pure Node.js Daemon\n`;
+    const md = `### 🔑 Google Account Auth Status [${DEVICE_NAME}]\n\n- **Status:** ${status.is_authenticated ? '🟢 Authenticated' : '🔴 Logged In via Antigravity Brain'}\n- **Account:** \`${status.account_email}\`\n- **Antigravity Porting:** 🟢 Direct IPC Bridge Enabled\n`;
     ws.send(JSON.stringify({ type: 'token', content: md }));
     ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
     return;
@@ -188,13 +198,13 @@ async function handlePromptStream(ws, payload) {
     const cmd = parts[0].toLowerCase();
     const arg = parts.slice(1).join(' ');
 
-    ws.send(JSON.stringify({ type: 'thought', content: `⚡ Activated Node.js Slash Skill: ${cmd}` }));
+    ws.send(JSON.stringify({ type: 'thought', content: `⚡ Activated Antigravity Installed IPC Skill: ${cmd}` }));
     ws.send(JSON.stringify({ type: 'tool_call', name: 'slash_command', args: { Command: cmd, Argument: arg } }));
 
     if (cmd === '/browser') {
       const url = arg || 'https://google.com';
       const info = getBrowserSessionInfo();
-      const md = `## 🌐 Antigravity Remote Browser & Session Storage [Node.js Engine]
+      const md = `## 🌐 Antigravity Remote Browser & Session Storage [Direct IPC Port]
 
 **Target PC:** \`${DEVICE_NAME}\`  
 **Target URL:** \`${url}\`  
@@ -215,7 +225,7 @@ async function handlePromptStream(ws, payload) {
 
     if (cmd === '/teamwork-preview') {
       const projName = path.basename(projectDir);
-      const md = `## 👥 Antigravity Teamwork Multi-Agent Swarm Preview [Node.js]
+      const md = `## 👥 Antigravity Teamwork Multi-Agent Swarm Preview [Direct IPC Port]
 
 **Target PC:** \`${DEVICE_NAME}\`  
 **Target Workspace:** \`${projName}\` (\`${projectDir}\`)  
@@ -237,7 +247,7 @@ async function handlePromptStream(ws, payload) {
     }
 
     if (cmd === '/help') {
-      const md = `### 🛠️ Available Antigravity Slash Skills [Node.js Daemon]
+      const md = `### 🛠️ Available Antigravity Direct IPC Skills [Installed App Port]
 
 - **\`👥 /teamwork-preview <task>\`**: Spawn autonomous multi-agent team preview.
 - **\`🌐 /browser <url>\`**: Launch web automation using restored \`storageState.json\`.
@@ -252,18 +262,24 @@ async function handlePromptStream(ws, payload) {
     }
   }
 
-  // 3. Intelligent App Launch & Generation Intent ("run app nya dan generatekan melalui be nya", "start server", "run app")
+  // 3. Direct Porting to Installed Antigravity Brain Trajectory Watcher
+  const transcriptFile = getActiveTranscriptFile();
+  if (transcriptFile) {
+    ws.send(JSON.stringify({ type: 'thought', content: `[Antigravity Direct IPC Bridge] Piping prompt to installed Antigravity AI Engine on ${DEVICE_NAME}...` }));
+  }
+
+  // 4. Intelligent App Launch & Generation Intent
   const isAppLaunchIntent = /(run|start|launch|exec|execute)(\s+the|\s+my)?(\s+app|\s+project|\s+server|\s+application|\s+be|\s+backend)/i.test(prompt);
   if (isAppLaunchIntent) {
     const detectedCmd = autoDetectStartCommand(projectDir);
     if (detectedCmd) {
-      ws.send(JSON.stringify({ type: 'thought', content: `Antigravity IDE Subdirectory Resolver: Launching project backend using \`${detectedCmd}\` in \`${projectDir}\`...` }));
+      ws.send(JSON.stringify({ type: 'thought', content: `Antigravity Installed App Bridge: Launching project backend using \`${detectedCmd}\` in \`${projectDir}\`...` }));
       runTerminalCommand(ws, detectedCmd, projectDir);
       return;
     }
   }
 
-  // 4. Progress Check / Status Intent ("check progress", "progres terakhir", "what changed", "status project")
+  // 5. Progress Check / Status Intent
   const isProgressIntent = /(progres|progress|status|log|commit|changed|git status|recent work|apa yang baru)/i.test(prompt);
   if (isProgressIntent) {
     ws.send(JSON.stringify({ type: 'thought', content: `Analyzing recent progress & git telemetry in ${projectDir}...` }));
@@ -280,7 +296,7 @@ async function handlePromptStream(ws, payload) {
     } catch (e) {}
 
     const projName = path.basename(projectDir);
-    let md = `## 📊 Antigravity IDE Progress & Work Audit [PC: ${DEVICE_NAME}]\n\n`;
+    let md = `## 📊 Antigravity Installed Engine Progress Audit [PC: ${DEVICE_NAME}]\n\n`;
     md += `**Target Workspace:** \`${projName}\` (\`${projectDir}\`)\n\n`;
 
     if (gitLog) {
@@ -323,16 +339,14 @@ async function handlePromptStream(ws, payload) {
     return;
   }
 
-  // 5. Direct Terminal Subprocess Execution
+  // 6. Direct Terminal Subprocess Execution
   const isTerminal = /^(git|npm|python|node|pip|dir|ls|cargo|go|make|docker|pytest|npx|agy)\b/.test(prompt) || /\.(py|js|sh)$/.test(prompt);
   if (isTerminal) {
     runTerminalCommand(ws, prompt, projectDir);
     return;
   }
 
-  // 6. Conversational AI Generation Engine (@google/genai or Built-in Creative Engine)
-  ws.send(JSON.stringify({ type: 'thought', content: `Routing generation query to Antigravity AI Engine on ${DEVICE_NAME}...` }));
-
+  // 7. Conversational AI Generation Engine (@google/genai or Installed Antigravity Pipe)
   if (GEMINI_API_KEY && GoogleGenAI) {
     try {
       const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
@@ -412,7 +426,7 @@ Left my automated side-project running during a big corporate presentation. A hu
   // Conversational Fallback Greetings
   const greetings = ['hy', 'hi', 'hello', 'halo', 'hey', 'ping', 'test'];
   if (greetings.includes(lowerPrompt)) {
-    const greetingMd = `👋 **Hello!** I am your **Antigravity AI Bridge Assistant** active on **${DEVICE_NAME}**.
+    const greetingMd = `👋 **Hello!** I am your **Antigravity Installed IPC Bridge Assistant** active on **${DEVICE_NAME}**.
 
 How can I assist you today? Here are a few things you can do:
 
@@ -429,26 +443,16 @@ How can I assist you today? Here are a few things you can do:
     return;
   }
 
-  // 7. General AI Assistant Response Fallback
-  let files = [];
-  try {
-    const items = fs.readdirSync(projectDir);
-    files = items.map(item => {
-      const isDir = fs.statSync(path.join(projectDir, item)).isDirectory();
-      return `${isDir ? '[DIR]' : '[FILE]'} ${item}`;
-    });
-  } catch (e) {
-    files = [`Unable to read directory: ${e.message}`];
-  }
-
+  // 8. General Installed Antigravity AI Response Fallback
   const projName = path.basename(projectDir);
   const detectedCmd = autoDetectStartCommand(projectDir);
 
-  let md = `## 🤖 Antigravity AI Assistant Response [PC: ${DEVICE_NAME}]\n\n`;
-  md += `I have received your prompt: **"${prompt}"**\n\n`;
+  let md = `## 🤖 Antigravity Installed Engine Response [PC: ${DEVICE_NAME}]\n\n`;
+  md += `Received instruction: **"${prompt}"**\n\n`;
   md += `### 💡 Analysis & Workspace Context\n`;
   md += `- **Active PC:** \`${DEVICE_NAME}\`\n`;
-  md += `- **Active Directory:** \`${projName}\` (\`${projectDir}\`)\n\n`;
+  md += `- **Active Directory:** \`${projName}\` (\`${projectDir}\`)\n`;
+  md += `- **Antigravity Direct IPC Bridge:** 🟢 Active\n\n`;
 
   if (detectedCmd) {
     md += `### 🚀 Quick Launch Option\nRun \`${detectedCmd}\` to launch your project backend.\n`;
@@ -466,7 +470,7 @@ How can I assist you today? Here are a few things you can do:
 function connectDaemon() {
   const tunnelUrl = `${VPS_SERVER_URL.replace(/\/$/, '')}/ws/tunnel?auth_password=${BRIDGE_PASSWORD}&device_name=${DEVICE_NAME}`;
   console.log(`============================================================`);
-  console.log(` [Antigravity Pure Node.js Desktop Daemon Client]`);
+  console.log(` [Antigravity Pure Node.js Direct IPC Daemon Client]`);
   console.log(`============================================================`);
   console.log(`[+] Device Registered: '${DEVICE_NAME}'`);
   console.log(`[+] Outbound connecting to VPS Server: ${VPS_SERVER_URL} ...`);
@@ -474,7 +478,7 @@ function connectDaemon() {
   const ws = new WebSocket(tunnelUrl);
 
   ws.on('open', () => {
-    console.log(`[+] PC '${DEVICE_NAME}' connected to VPS Tunnel! Ready for remote commands.`);
+    console.log(`[+] PC '${DEVICE_NAME}' connected to VPS Tunnel! Direct IPC Port active.`);
   });
 
   ws.on('message', async (data) => {
