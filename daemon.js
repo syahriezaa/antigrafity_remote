@@ -238,31 +238,32 @@ async function handlePromptStream(ws, payload) {
     }
   }
 
-  // 3. Conversational AI Assistant Engine (@google/genai or Real Gemini Generation)
-  if (GEMINI_API_KEY && GoogleGenAI) {
-    ws.send(JSON.stringify({ type: 'thought', content: `Routing generation query to Antigravity Gemini AI Engine on ${DEVICE_NAME}...` }));
-    try {
-      const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-      const responseStream = await ai.models.generateContentStream({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-      });
+  // 3. Creative / Story / Text Generation Intent (High Priority AI Intent)
+  const isCreativeIntent = /(redit|reddit|story|cerita|generate|buatkan|tuliskan|write|create|explain|jelaskan)/i.test(prompt);
+  if (isCreativeIntent) {
+    if (GEMINI_API_KEY && GoogleGenAI) {
+      ws.send(JSON.stringify({ type: 'thought', content: `Routing generation query to Antigravity Gemini AI Engine on ${DEVICE_NAME}...` }));
+      try {
+        const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+        const responseStream = await ai.models.generateContentStream({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+        });
 
-      for await (const chunk of responseStream) {
-        if (chunk.text) {
-          ws.send(JSON.stringify({ type: 'token', content: chunk.text }));
+        for await (const chunk of responseStream) {
+          if (chunk.text) {
+            ws.send(JSON.stringify({ type: 'token', content: chunk.text }));
+          }
         }
+
+        ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+        return;
+      } catch (err) {
+        console.warn('GenAI streaming error, falling back:', err.message);
       }
-
-      ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
-      return;
-    } catch (err) {
-      console.warn('GenAI streaming error, falling back:', err.message);
     }
-  }
 
-  // 4. Built-in Reddit Story & Text Generation Engine
-  if (lowerPrompt.includes('redit') || lowerPrompt.includes('reddit') || lowerPrompt.includes('story') || lowerPrompt.includes('cerita')) {
+    // Built-in High-Quality Story Generator Output
     ws.send(JSON.stringify({ type: 'thought', content: `Generating 3-Minute Viral Reddit Story Script on ${DEVICE_NAME}...` }));
     ws.send(JSON.stringify({ type: 'tool_call', name: 'generate_reddit_story', args: { TargetDurationMinutes: 3, Language: 'Indonesian' } }));
 
@@ -317,7 +318,7 @@ Left my automated side-project running during a big corporate presentation. A hu
     return;
   }
 
-  // 5. Progress Check / Status Intent ("check progress", "progres terakhir", "what changed", "status project")
+  // 4. Progress Check / Status Intent ("check progress", "progres terakhir", "what changed", "status project")
   const isProgressIntent = /(progres|progress|status|log|commit|changed|git status|recent work|apa yang baru)/i.test(prompt);
   if (isProgressIntent) {
     ws.send(JSON.stringify({ type: 'thought', content: `Analyzing recent progress & git telemetry in ${projectDir}...` }));
@@ -377,7 +378,7 @@ Left my automated side-project running during a big corporate presentation. A hu
     return;
   }
 
-  // 6. Intelligent App Launch Intent Detection ("run app", "start project", "launch app")
+  // 5. Intelligent App Launch Intent Detection ("run app", "start project", "launch app")
   const isAppLaunchIntent = /^(run|start|launch|exec|execute)(\s+the|\s+my)?(\s+app|\s+project|\s+server|\s+application)/i.test(prompt);
   if (isAppLaunchIntent) {
     const detectedCmd = autoDetectStartCommand(projectDir);
@@ -400,7 +401,7 @@ Please specify the exact command to run, for example:
     }
   }
 
-  // 7. Direct Terminal Subprocess Execution
+  // 6. Direct Terminal Subprocess Execution
   const isTerminal = /^(git|npm|python|node|pip|dir|ls|cargo|go|make|docker|pytest|npx|agy)\b/.test(prompt) || /\.(py|js|sh)$/.test(prompt);
   if (isTerminal) {
     runTerminalCommand(ws, prompt, projectDir);
@@ -427,7 +428,7 @@ How can I assist you today? Here are a few things you can do:
     return;
   }
 
-  // 8. Comprehensive Antigravity IDE Response Engine
+  // 7. Comprehensive Antigravity IDE Response Engine
   let files = [];
   try {
     const items = fs.readdirSync(projectDir);
