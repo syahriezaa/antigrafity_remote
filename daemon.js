@@ -239,8 +239,6 @@ async function handlePromptStream(ws, payload) {
   }
 
   // 3. Conversational AI Assistant Engine (@google/genai or Real Gemini Generation)
-  const isGenerationIntent = /(redit|reddit|story|cerita|generate|buatkan|tuliskan|write|create|explain|jelaskan)/i.test(prompt);
-  
   if (GEMINI_API_KEY && GoogleGenAI) {
     ws.send(JSON.stringify({ type: 'thought', content: `Routing generation query to Antigravity Gemini AI Engine on ${DEVICE_NAME}...` }));
     try {
@@ -263,7 +261,7 @@ async function handlePromptStream(ws, payload) {
     }
   }
 
-  // 4. Built-in Reddit Story & Text Generation Engine (If API Key is pending)
+  // 4. Built-in Reddit Story & Text Generation Engine
   if (lowerPrompt.includes('redit') || lowerPrompt.includes('reddit') || lowerPrompt.includes('story') || lowerPrompt.includes('cerita')) {
     ws.send(JSON.stringify({ type: 'thought', content: `Generating 3-Minute Viral Reddit Story Script on ${DEVICE_NAME}...` }));
     ws.send(JSON.stringify({ type: 'tool_call', name: 'generate_reddit_story', args: { TargetDurationMinutes: 3, Language: 'Indonesian' } }));
@@ -271,7 +269,7 @@ async function handlePromptStream(ws, payload) {
     const storyMd = `## 📖 3-Minute Viral Reddit Story [r/tifu & r/AskReddit]
 
 **Target Duration:** ~3 Minutes (~450 Words)  
-**Tone:** Suspenseful, Plot-Twist, Dramatic Narration  
+**Tone:** Dramatic, Plot-Twist, Engaging Narration  
 **Target PC:** \`${DEVICE_NAME}\`
 
 ---
@@ -284,13 +282,13 @@ async function handlePromptStream(ws, payload) {
 ### 🎙️ Narration Script (Estimated Voiceover Time: 3:10):
 
 **(0:00 - 0:30) [The Hook]:**  
-So this happened yesterday, and I’m currently writing this from under my desk while contemplating changing my identity. I (26M) work as a junior data analyst for a pretty conservative financial firm. For the last six months, I’ve been running a secret side project in my free time—building automated software tools. Nobody at my day job knew. Or so I thought.
+So this happened yesterday, and I am currently writing this from under my desk while contemplating changing my identity. I (26M) work as a junior data analyst for a pretty conservative financial firm. For the last six months, I have been running a secret side project in my free time—building automated software tools. Nobody at my day job knew. Or so I thought.
 
 **(0:30 - 1:15) [The Setup]:**  
 Yesterday morning was our quarterly all-hands meeting. The regional manager, executive vice presidents, and about 40 coworkers were in the conference room. I was scheduled to present our Q3 revenue projection slides. I hooked up my laptop to the main 85-inch 4K screen at the front of the room. Everything was going fine until I switched to present a live dashboard.
 
 **(1:15 - 2:00) [The Incident]:**  
-What I didn't realize was that I had left my live webhook notification server running in the background. Suddenly, right in the middle of explaining column C on slide four, a massive, glassmorphic pop-up notification flashed across the gigantic 85-inch screen in front of everyone:
+What I did not realize was that I had left my live notification server running in the background. Suddenly, right in the middle of explaining column C on slide four, a massive notification flashed across the gigantic 85-inch screen in front of everyone:
 
 > **🔔 ALERT: "Money-Printer-Turbo: Project milestone achieved! Direct payout $4,850 received!"**
 
@@ -298,18 +296,15 @@ The entire conference room went completely silent. You could hear a pin drop. Th
 
 **(2:00 - 2:45) [The Twist]:**  
 My heart sank into my shoes. I scrambled to minimize the window, sweating through my dress shirt. I tried to stutter out an explanation about it being a test script for internal data processing. But before I could finish, our IT Director stood up from the back of the room, grinned, and said:  
-*"Wait, John, is that the open-source automation bridge you built? We've been using your tool to automate our daily reports for the past two weeks!"*
+*"Wait, John, is that the open-source automation bridge you built? We have been using your tool to automate our daily reports for the past two weeks!"*
 
 **(2:45 - 3:10) [The Resolution & TL;DR]:**  
-Turns out, my boss wasn't mad. Instead of firing me for running a side hustle, the VP invited me to present the tool to the tech board next Monday for a potential promotion into senior automation engineering!
+Turns out, my boss was not mad. Instead of firing me for running a side hustle, the VP invited me to present the tool to the tech board next Monday for a potential promotion into senior automation engineering!
 
 ---
 
 ### 📌 TL;DR:
 Left my automated side-project running during a big corporate presentation. A huge payout alert popped up on the VP's screen. Instead of getting fired, I got recommended for a promotion!
-
----
-💡 *Tip: You can set `GEMINI_API_KEY=your_key` in `.env` to stream custom AI stories & scripts endlessly!*
 `;
 
     const words = storyMd.split(' ');
