@@ -103,7 +103,7 @@ function autoDetectStartCommand(projectDir) {
           try {
             const pkg = JSON.parse(fs.readFileSync(subPkg, 'utf-8'));
             if (pkg.scripts && (pkg.scripts.start || pkg.scripts.dev)) {
-              return `cd "${sub}" && npm start`;
+              return `npm --prefix ${sub} start`;
             }
           } catch (e) {}
         }
