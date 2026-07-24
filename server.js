@@ -14,6 +14,10 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 8000;
 const BRIDGE_PASSWORD = process.env.BRIDGE_PASSWORD || 'antigravity_secret_123';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+const VPS_BASE_URL = process.env.VPS_BASE_URL || `http://localhost:${PORT}`;
+
 const ACTIVE_TOKENS = new Set();
 
 // Multi-PC Registry: device_name -> WebSocket
@@ -31,11 +35,93 @@ app.post('/api/login', (req, res) => {
   return res.status(401).json({ detail: 'Invalid Bridge Password' });
 });
 
+// Real Google OAuth 2.0 Initiator Endpoint
+app.get('/api/auth/google', (req, res) => {
+  if (!GOOGLE_CLIENT_ID) {
+    return res.status(400).send(`
+      <h2>⚠️ Google OAuth Client ID Not Configured</h2>
+      <p>Please set <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> in your <code>.env</code> file or environment variables.</p>
+    `);
+  }
+
+  const redirectUri = `${VPS_BASE_URL}/api/auth/google/callback`;
+  const scope = encodeURIComponent('openid email profile');
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
+
+  res.redirect(authUrl);
+});
+
+// Real Google OAuth 2.0 Callback Endpoint
+app.get('/api/auth/google/callback', async (req, res) => {
+  const code = req.query.code;
+  if (!code) {
+    return res.status(400).send('OAuth Code missing');
+  }
+
+  try {
+    const redirectUri = `${VPS_BASE_URL}/api/auth/google/callback`;
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code'
+      })
+    });
+
+    const tokenData = await tokenResponse.json();
+    if (tokenData.error) {
+      return res.status(400).send(`OAuth Error: ${tokenData.error_description || tokenData.error}`);
+    }
+
+    // Decode ID Token or fetch user profile
+    const profileResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` }
+    });
+    const profile = await profileResponse.json();
+    const userEmail = profile.email || 'Authenticated Google User';
+
+    // Broadcast authenticated user email to target PC daemon
+    for (const daemonWs of activeDaemons.values()) {
+      if (daemonWs.readyState === 1) {
+        daemonWs.send(JSON.stringify({
+          prompt: `git config --global user.email "${userEmail}"`,
+          project_dir: '',
+          direct_mode: true
+        }));
+      }
+    }
+
+    res.send(`
+      <html>
+        <body style="font-family:sans-serif; text-align:center; padding:50px; background:#F8FAFC;">
+          <h2 style="color:#10B981;">🟢 Google Authentication Successful!</h2>
+          <p>Logged in as: <strong>${userEmail}</strong></p>
+          <p>Credentials applied to target PC. You can close this window now.</p>
+          <script>
+            if (window.opener) {
+              window.opener.postMessage({ type: 'google_auth_success', email: '${userEmail}' }, '*');
+              setTimeout(() => window.close(), 2000);
+            }
+          </script>
+        </body>
+      </html>
+    `);
+
+  } catch (e) {
+    res.status(500).send(`Server OAuth Exception: ${e.message}`);
+  }
+});
+
 // System Status Endpoint
 app.get('/api/status', (req, res) => {
   res.json({
     vps_status: 'online',
     runtime: 'Node.js Express',
+    google_oauth_configured: Boolean(GOOGLE_CLIENT_ID),
     desktop_daemon_connected: activeDaemons.size > 0,
     active_daemons: Array.from(activeDaemons.keys()),
     active_clients: activeWebClients.size,
@@ -126,7 +212,7 @@ app.get('/api/session/:id', (req, res) => {
         const content = step.content || '';
 
         if (type === 'USER_INPUT') {
-          messages.append ? messages.push({ role: 'user', text: content }) : messages.push({ role: 'user', text: content });
+          messages.push({ role: 'user', text: content });
         } else if (type === 'PLANNER_RESPONSE' || step.tool_calls) {
           if (content) messages.push({ role: 'agent', text: content });
           if (step.tool_calls) {
@@ -188,7 +274,6 @@ function handleDaemonTunnel(ws, searchParams) {
 
   ws.on('message', (data) => {
     const msgStr = data.toString();
-    // Broadcast desktop daemon outputs back to all connected web UI clients
     for (const client of activeWebClients) {
       if (client.readyState === 1) {
         client.send(msgStr);
@@ -241,6 +326,6 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(` [Antigravity Express + Node.js VPS Server Running]`);
   console.log(`============================================================`);
   console.log(`[+] Web UI & REST API listening on http://0.0.0.0:${PORT}`);
-  console.log(`[+] Pure Node.js Architecture Active (Zero Python required!)`);
+  console.log(`[+] Real Google OAuth 2.0 Endpoint: /api/auth/google`);
   console.log(`============================================================`);
 });
