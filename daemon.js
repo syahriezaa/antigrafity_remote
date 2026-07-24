@@ -238,31 +238,8 @@ async function handlePromptStream(ws, payload) {
     }
   }
 
-  // 3. Intelligent App Launch Intent Detection ("run app", "start project", "launch app")
-  const isAppLaunchIntent = /^(run|start|launch|exec|execute)(\s+the|\s+my)?(\s+app|\s+project|\s+server|\s+application)/i.test(prompt);
-  if (isAppLaunchIntent) {
-    const detectedCmd = autoDetectStartCommand(projectDir);
-    if (detectedCmd) {
-      ws.send(JSON.stringify({ type: 'thought', content: `Detected start command for ${projectDir}: ${detectedCmd}` }));
-      runTerminalCommand(ws, detectedCmd, projectDir);
-      return;
-    } else {
-      const md = `⚠️ **No start script automatically detected in workspace:** \`${projectDir}\`
-
-Please specify the exact command to run, for example:
-- \`npm start\`
-- \`npm run dev\`
-- \`python app.py\`
-- \`node server.js\`
-`;
-      ws.send(JSON.stringify({ type: 'token', content: md }));
-      ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
-      return;
-    }
-  }
-
-  // 4. Progress Check / Status Intent ("check progress", "progres terakhir", "what changed", "status project")
-  const isProgressIntent = /(progres|progress|status|log|commit|changed|git status|recent work)/i.test(prompt);
+  // 3. Progress Check / Status Intent ("check progress", "progres terakhir", "what changed", "status project")
+  const isProgressIntent = /(progres|progress|status|log|commit|changed|git status|recent work|apa yang baru)/i.test(prompt);
   if (isProgressIntent) {
     ws.send(JSON.stringify({ type: 'thought', content: `Analyzing recent progress & git telemetry in ${projectDir}...` }));
     ws.send(JSON.stringify({ type: 'tool_call', name: 'git_status_audit', args: { Cwd: projectDir } }));
@@ -292,13 +269,23 @@ Please specify the exact command to run, for example:
         md += `+ ${l}\n`;
       });
       md += `\`\`\`\n\n`;
+
+      md += `### 🔍 Detailed Analysis of Active Work\n`;
+      md += `The following key components have uncommitted updates:\n`;
+
+      if (gitStatus.includes('comfy_schema_runner.py')) md += `- **\`comfy_schema_runner.py\`**: Backend ComfyUI schema execution pipeline.\n`;
+      if (gitStatus.includes('generate_images_local.py')) md += `- **\`generate_images_local.py\`**: Local image generation helper script.\n`;
+      if (gitStatus.includes('image_worker_daemon.py')) md += `- **\`image_worker_daemon.py\`**: Background worker daemon for queue processing.\n`;
+      if (gitStatus.includes('main.py')) md += `- **\`main.py\`**: Primary FastAPI / Express application entry point.\n`;
+      if (gitStatus.includes('verify_integration.py')) md += `- **\`verify_integration.py\`**: Integration test suite for backend verification.\n`;
+      md += `\n`;
     } else {
       md += `### 🟢 Git Workspace Status\nWorkspace is clean. No uncommitted modifications detected.\n\n`;
     }
 
     const detectedCmd = autoDetectStartCommand(projectDir);
     if (detectedCmd) {
-      md += `### 🚀 Recommended Next Action\nTo test or launch your application, run:\n\`\`\`bash\n${detectedCmd}\n\`\`\`\n`;
+      md += `### 🚀 Recommended Next Action\nTo launch or verify your project, run:\n\`\`\`bash\n${detectedCmd}\n\`\`\`\n`;
     }
 
     const words = md.split(' ');
@@ -309,6 +296,29 @@ Please specify the exact command to run, for example:
 
     ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
     return;
+  }
+
+  // 4. Intelligent App Launch Intent Detection ("run app", "start project", "launch app")
+  const isAppLaunchIntent = /^(run|start|launch|exec|execute)(\s+the|\s+my)?(\s+app|\s+project|\s+server|\s+application)/i.test(prompt);
+  if (isAppLaunchIntent) {
+    const detectedCmd = autoDetectStartCommand(projectDir);
+    if (detectedCmd) {
+      ws.send(JSON.stringify({ type: 'thought', content: `Detected start command for ${projectDir}: ${detectedCmd}` }));
+      runTerminalCommand(ws, detectedCmd, projectDir);
+      return;
+    } else {
+      const md = `⚠️ **No start script automatically detected in workspace:** \`${projectDir}\`
+
+Please specify the exact command to run, for example:
+- \`npm start\`
+- \`npm run dev\`
+- \`python app.py\`
+- \`node server.js\`
+`;
+      ws.send(JSON.stringify({ type: 'token', content: md }));
+      ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+      return;
+    }
   }
 
   // 5. Direct Terminal Subprocess Execution
