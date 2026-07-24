@@ -17,6 +17,7 @@ const PORT = process.env.PORT || 8000;
 const BRIDGE_PASSWORD = process.env.BRIDGE_PASSWORD || 'antigravity_secret_123';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'https://dev.junaidi-ai.com/api/auth/google/callback';
 
 const ACTIVE_TOKENS = new Set();
 
@@ -25,12 +26,8 @@ const activeDaemons = new Map();
 const activeWebClients = new Set();
 
 function getRedirectUri(req) {
-  if (process.env.GOOGLE_REDIRECT_URI) {
-    return process.env.GOOGLE_REDIRECT_URI;
-  }
-  const host = req.headers.host || `localhost:${PORT}`;
-  const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
-  return `${protocol}://${host}/api/auth/google/callback`;
+  // Always return the exact registered Google Console redirect URI
+  return GOOGLE_REDIRECT_URI;
 }
 
 // Password Login Endpoint
@@ -342,5 +339,6 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`============================================================`);
   console.log(`[+] Web UI & REST API listening on http://0.0.0.0:${PORT}`);
   console.log(`[+] Google Client ID: ${GOOGLE_CLIENT_ID || 'Configured via .env'}`);
+  console.log(`[+] Google Redirect URI: ${GOOGLE_REDIRECT_URI}`);
   console.log(`============================================================`);
 });
