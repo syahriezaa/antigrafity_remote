@@ -1,4 +1,4 @@
-// Antigravity Remote Bridge - Client JS with Configured Google Client ID
+// Antigravity Remote Bridge - Client JS with Configured Google Client ID & Clean UI Bubbles
 document.addEventListener("DOMContentLoaded", () => {
   let ws = null;
   let currentAgentBubble = null;
@@ -80,6 +80,62 @@ document.addEventListener("DOMContentLoaded", () => {
     meetingTable: { top: 150, left: 140 },
     coffeeBar: { top: 310, left: 150 }
   };
+
+  function createUserBubble(text) {
+    const div = document.createElement("div");
+    div.className = "message user-message";
+    div.innerHTML = `
+      <div class="avatar">👤</div>
+      <div class="msg-content">
+        <div class="msg-author">You</div>
+        <div class="msg-body">${escapeHtml(text)}</div>
+      </div>
+    `;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return div;
+  }
+
+  function createAgentBubble(text = "") {
+    const div = document.createElement("div");
+    div.className = "message agent-message";
+    div.innerHTML = `
+      <div class="avatar">🤖</div>
+      <div class="msg-content">
+        <div class="msg-author">Antigravity Bridge</div>
+        <div class="msg-body">${text ? (window.marked ? marked.parse(text) : escapeHtml(text)) : '<span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>'}</div>
+      </div>
+    `;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return div;
+  }
+
+  function addThoughtEvent(content, type = "thought") {
+    thoughtCount++;
+    if (thoughtCountBadge) thoughtCountBadge.textContent = `${thoughtCount} Events`;
+
+    const empty = thoughtFeed.querySelector(".empty-state");
+    if (empty) empty.remove();
+
+    const card = document.createElement("div");
+    card.className = "event-card";
+    card.style.borderLeftColor = type === "tool" ? "#10B981" : "#8B5CF6";
+    card.innerHTML = `
+      <div class="title" style="font-weight:600; font-size:0.8rem; color:var(--text-primary);">
+        ${type === "tool" ? "🛠️ Tool Call" : "🧠 Thought Stream"}
+      </div>
+      <div class="body" style="font-family:monospace; font-size:0.75rem; white-space:pre-wrap; margin-top:4px;">${escapeHtml(content)}</div>
+    `;
+    thoughtFeed.appendChild(card);
+    thoughtFeed.scrollTop = thoughtFeed.scrollHeight;
+  }
+
+  function handleProcessStart(event) {
+    processStartTime = Date.now();
+  }
+
+  function handleProcessEnd(event) {}
 
   function moveAgent(agentEl, locationKey) {
     const loc = LOCATIONS[locationKey];
@@ -422,7 +478,7 @@ document.addEventListener("DOMContentLoaded", () => {
         currentAgentBubble = createAgentBubble();
       }
       currentAgentText += event.content;
-      currentAgentBubble.querySelector(".msg-body").innerHTML = marked.parse(currentAgentText);
+      currentAgentBubble.querySelector(".msg-body").innerHTML = window.marked ? marked.parse(currentAgentText) : escapeHtml(currentAgentText);
 
       // Extract account email if present in token stream
       if (event.content.includes("Account:** `")) {
