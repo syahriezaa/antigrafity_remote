@@ -74,6 +74,75 @@ function getBrowserSessionInfo() {
   return { exists: false, file_path: stateFile };
 }
 
+function autoDetectStartCommand(projectDir) {
+  const pkgFile = path.join(projectDir, 'package.json');
+  if (fs.existsSync(pkgFile)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf-8'));
+      const scripts = pkg.scripts || {};
+      if (scripts.dev) return 'npm run dev';
+      if (scripts.start) return 'npm start';
+      if (scripts.serve) return 'npm run serve';
+    } catch (e) {}
+  }
+
+  if (fs.existsSync(path.join(projectDir, 'server.js'))) return 'node server.js';
+  if (fs.existsSync(path.join(projectDir, 'app.js'))) return 'node app.js';
+  if (fs.existsSync(path.join(projectDir, 'index.js'))) return 'node index.js';
+  if (fs.existsSync(path.join(projectDir, 'main.py'))) return 'python main.py';
+  if (fs.existsSync(path.join(projectDir, 'app.py'))) return 'python app.py';
+
+  // Check subdirectories
+  try {
+    const items = fs.readdirSync(projectDir);
+    for (const item of items) {
+      const sub = path.join(projectDir, item);
+      if (fs.statSync(sub).isDirectory()) {
+        const subPkg = path.join(sub, 'package.json');
+        if (fs.existsSync(subPkg)) {
+          try {
+            const pkg = JSON.parse(fs.readFileSync(subPkg, 'utf-8'));
+            if (pkg.scripts && (pkg.scripts.start || pkg.scripts.dev)) {
+              return `cd "${sub}" && npm start`;
+            }
+          } catch (e) {}
+        }
+      }
+    }
+  } catch (e) {}
+
+  return null;
+}
+
+function runTerminalCommand(ws, prompt, projectDir) {
+  const startTime = Date.now();
+  ws.send(JSON.stringify({ type: 'thought', content: `Spawning terminal command in \`${projectDir}\`: \`${prompt}\`` }));
+  ws.send(JSON.stringify({ type: 'tool_call', name: 'run_command', args: { CommandLine: prompt, Cwd: projectDir } }));
+
+  const shellCmd = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
+  const shellArgs = process.platform === 'win32' ? ['/c', prompt] : ['-c', prompt];
+
+  const child = spawn(shellCmd, shellArgs, { cwd: projectDir });
+
+  ws.send(JSON.stringify({ type: 'process_start', pid: child.pid, command: prompt, cwd: projectDir }));
+  ws.send(JSON.stringify({ type: 'token', content: `\`\`\`terminal\n$ ${prompt}\n` }));
+
+  child.stdout.on('data', (chunk) => {
+    ws.send(JSON.stringify({ type: 'token', content: chunk.toString('utf-8') }));
+  });
+
+  child.stderr.on('data', (chunk) => {
+    ws.send(JSON.stringify({ type: 'token', content: chunk.toString('utf-8') }));
+  });
+
+  child.on('close', (code) => {
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    ws.send(JSON.stringify({ type: 'token', content: `\n[Process completed in ${duration}s with exit code ${code}]\n\`\`\`\n` }));
+    ws.send(JSON.stringify({ type: 'process_end', pid: child.pid, exit_code: code, duration }));
+    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+  });
+}
+
 async function handlePromptStream(ws, payload) {
   const prompt = (payload.prompt || '').trim();
   const projectDir = payload.project_dir && fs.existsSync(payload.project_dir) ? payload.project_dir : defaultWorkspace;
@@ -169,41 +238,37 @@ async function handlePromptStream(ws, payload) {
     }
   }
 
-  // 3. Terminal Subprocess Execution
-  const isTerminal = /^(git|npm|python|node|pip|dir|ls|cargo|go|make|docker|pytest|npx|agy)\b/.test(prompt) || /\.(py|js|sh)$/.test(prompt);
+  // 3. Intelligent App Launch Intent Detection ("run app", "start project", "launch app")
+  const isAppLaunchIntent = /^(run|start|launch|exec|execute)(\s+the|\s+my)?(\s+app|\s+project|\s+server|\s+application)/i.test(prompt);
+  if (isAppLaunchIntent) {
+    const detectedCmd = autoDetectStartCommand(projectDir);
+    if (detectedCmd) {
+      ws.send(JSON.stringify({ type: 'thought', content: `Detected start command for ${projectDir}: ${detectedCmd}` }));
+      runTerminalCommand(ws, detectedCmd, projectDir);
+      return;
+    } else {
+      const md = `⚠️ **No start script automatically detected in workspace:** \`${projectDir}\`
 
-  if (isTerminal) {
-    const startTime = Date.now();
-    ws.send(JSON.stringify({ type: 'thought', content: `Spawning terminal command in \`${projectDir}\`: \`${prompt}\`` }));
-    ws.send(JSON.stringify({ type: 'tool_call', name: 'run_command', args: { CommandLine: prompt, Cwd: projectDir } }));
-
-    const shellCmd = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
-    const shellArgs = process.platform === 'win32' ? ['/c', prompt] : ['-c', prompt];
-
-    const child = spawn(shellCmd, shellArgs, { cwd: projectDir });
-
-    ws.send(JSON.stringify({ type: 'process_start', pid: child.pid, command: prompt, cwd: projectDir }));
-    ws.send(JSON.stringify({ type: 'token', content: `\`\`\`terminal\n$ ${prompt}\n` }));
-
-    child.stdout.on('data', (chunk) => {
-      ws.send(JSON.stringify({ type: 'token', content: chunk.toString('utf-8') }));
-    });
-
-    child.stderr.on('data', (chunk) => {
-      ws.send(JSON.stringify({ type: 'token', content: chunk.toString('utf-8') }));
-    });
-
-    child.on('close', (code) => {
-      const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-      ws.send(JSON.stringify({ type: 'token', content: `\n[Process completed in ${duration}s with exit code ${code}]\n\`\`\`\n` }));
-      ws.send(JSON.stringify({ type: 'process_end', pid: child.pid, exit_code: code, duration }));
+Please specify the exact command to run, for example:
+- \`npm start\`
+- \`npm run dev\`
+- \`python app.py\`
+- \`node server.js\`
+`;
+      ws.send(JSON.stringify({ type: 'token', content: md }));
       ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
-    });
+      return;
+    }
+  }
 
+  // 4. Direct Terminal Subprocess Execution
+  const isTerminal = /^(git|npm|python|node|pip|dir|ls|cargo|go|make|docker|pytest|npx|agy)\b/.test(prompt) || /\.(py|js|sh)$/.test(prompt);
+  if (isTerminal) {
+    runTerminalCommand(ws, prompt, projectDir);
     return;
   }
 
-  // 4. Conversational AI Assistant Engine (@google/genai or intelligent Assistant Response)
+  // 5. Conversational AI Assistant Engine (@google/genai or Assistant Response)
   ws.send(JSON.stringify({ type: 'thought', content: `Processing conversational query on ${DEVICE_NAME}...` }));
 
   if (GEMINI_API_KEY && GoogleGenAI) {
@@ -227,13 +292,14 @@ async function handlePromptStream(ws, payload) {
     }
   }
 
-  // Conversational Fallback Greeting & Assistance
+  // Conversational Fallback Greetings
   const greetings = ['hy', 'hi', 'hello', 'halo', 'hey', 'ping', 'test'];
   if (greetings.includes(lowerPrompt)) {
     const greetingMd = `👋 **Hello!** I am your **Antigravity AI Bridge Assistant** active on **${DEVICE_NAME}**.
 
 How can I assist you today? Here are a few things you can do:
 
+- 🚀 **Run Active Application**: Type \`run the app\` or \`npm start\`
 - 🔑 **Check Google Auth Status**: Type \`/auth-status\`
 - 🌐 **Web Automation**: Type \`/browser https://google.com\`
 - 👥 **Multi-Agent Preview**: Type \`/teamwork-preview Build a web app\`
@@ -244,10 +310,7 @@ How can I assist you today? Here are a few things you can do:
     return;
   }
 
-  // 5. Default Workspace Inspection Engine
-  ws.send(JSON.stringify({ type: 'thought', content: `Inspecting directory on ${DEVICE_NAME}: ${projectDir}` }));
-  ws.send(JSON.stringify({ type: 'tool_call', name: 'list_dir', args: { DirectoryPath: projectDir } }));
-
+  // 6. Comprehensive Intelligent Response Engine
   let files = [];
   try {
     const items = fs.readdirSync(projectDir);
@@ -260,9 +323,18 @@ How can I assist you today? Here are a few things you can do:
   }
 
   const projName = path.basename(projectDir);
-  let md = `## 🤖 Antigravity Assistant Response [PC: ${DEVICE_NAME}]\n\n`;
-  md += `Received prompt: *"${prompt}"*\n\n`;
-  md += `### 📂 Current Workspace Directory: \`${projName}\`\n\`\`\`text\n${files.slice(0, 10).join('\n')}\n\`\`\`\n`;
+  const detectedCmd = autoDetectStartCommand(projectDir);
+
+  let md = `## 🤖 Antigravity Assistant [PC: ${DEVICE_NAME}]\n\n`;
+  md += `Received instruction: **"${prompt}"**\n\n`;
+  md += `### 📂 Target Workspace: \`${projName}\` (\`${projectDir}\`)\n`;
+  md += `\`\`\`text\n${files.slice(0, 12).join('\n')}\n\`\`\`\n\n`;
+
+  if (detectedCmd) {
+    md += `### 💡 Detected Application Command\nTo launch the application in this directory, click or type:\n\`\`\`bash\n${detectedCmd}\n\`\`\`\n`;
+  } else {
+    md += `### 💡 Workspace Command Options\nYou can run any project command directly, e.g.:\n- \`npm start\`\n- \`python main.py\`\n- \`git status\`\n`;
+  }
 
   const words = md.split(' ');
   for (const w of words) {
