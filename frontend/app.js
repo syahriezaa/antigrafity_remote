@@ -1,4 +1,4 @@
-// Antigravity Remote Bridge - Client JS with Instant Localhost Auto-Auth & Non-blocking Submit
+// Antigravity Remote Bridge - Client JS with Google Auth & Switching Control Buttons
 document.addEventListener("DOMContentLoaded", () => {
   let ws = null;
   let currentAgentBubble = null;
@@ -14,6 +14,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const authForm = document.getElementById("authForm");
   const authPassword = document.getElementById("authPassword");
   const authError = document.getElementById("authError");
+
+  // Account Switch Elements
+  const googleAccountBadge = document.getElementById("googleAccountBadge");
+  const checkAuthBtn = document.getElementById("checkAuthBtn");
+  const switchAccountBtn = document.getElementById("switchAccountBtn");
+  const logoutAccountBtn = document.getElementById("logoutAccountBtn");
 
   // DOM Elements
   const connectionBadge = document.getElementById("connectionBadge");
@@ -55,7 +61,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const cloudLeo = document.getElementById("cloud-leo");
   const cloudSam = document.getElementById("cloud-sam");
 
-  const triggerMeetingBtn = document.getElementById("triggerMeetingBtn");
   const officeStatusBadge = document.getElementById("officeStatusBadge");
 
   // Map Coordinates
@@ -82,6 +87,42 @@ document.addEventListener("DOMContentLoaded", () => {
       cloudEl.textContent = text;
       cloudEl.style.display = "block";
     }
+  }
+
+  // Account Switch Button Actions
+  if (checkAuthBtn) {
+    checkAuthBtn.addEventListener("click", () => {
+      sendPromptDirect("/auth-status");
+    });
+  }
+
+  if (switchAccountBtn) {
+    switchAccountBtn.addEventListener("click", () => {
+      const choice = prompt("Enter new Google Account email or leave blank to trigger `agy auth login` OAuth flow:", "");
+      if (choice !== null) {
+        if (choice.trim()) {
+          sendPromptDirect(`git config --global user.email "${choice.trim()}"`);
+          if (googleAccountBadge) googleAccountBadge.textContent = `🔑 Account: ${choice.trim()}`;
+        } else {
+          sendPromptDirect("agy auth login");
+        }
+      }
+    });
+  }
+
+  if (logoutAccountBtn) {
+    logoutAccountBtn.addEventListener("click", () => {
+      if (confirm("Are you sure you want to log out the Google Account on target PC?")) {
+        sendPromptDirect("/auth-logout");
+        if (googleAccountBadge) googleAccountBadge.textContent = "🔑 Account: Logged Out";
+      }
+    });
+  }
+
+  function sendPromptDirect(promptText) {
+    if (!promptText) return;
+    promptInput.value = promptText;
+    chatForm.dispatchEvent(new Event("submit"));
   }
 
   // Instant Auto-Auth for Localhost or Stored Token
@@ -300,6 +341,8 @@ document.addEventListener("DOMContentLoaded", () => {
       connectionBadge.className = "badge badge-online";
       connectionBadge.innerHTML = '<span class="dot"></span> ONLINE';
       fetchDaemons();
+      // Auto fetch Google Auth status on connect
+      setTimeout(() => sendPromptDirect("/auth-status"), 1000);
     };
 
     ws.onclose = () => {
@@ -329,6 +372,14 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       currentAgentText += event.content;
       currentAgentBubble.querySelector(".msg-body").innerHTML = marked.parse(currentAgentText);
+
+      // Extract account email if present in token stream
+      if (event.content.includes("Account:** `")) {
+        const match = event.content.match(/Account:\*\* `([^`]+)`/);
+        if (match && googleAccountBadge) {
+          googleAccountBadge.textContent = `🔑 Account: ${match[1]}`;
+        }
+      }
 
       if (isSubagentsActive && Math.random() < 0.15) {
         setSpeech(cloudLeo, `Leo: Token stream "${event.content.trim().substring(0, 15)}..."`);
@@ -407,94 +458,191 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  function createUserBubble(text) {
-    const msgDiv = document.createElement("div");
-    msgDiv.className = "chat-msg user";
-    msgDiv.innerHTML = `
-      <div class="msg-header">You</div>
-      <div class="msg-body">${marked.parse(text)}</div>
-    `;
-    chatMessages.appendChild(msgDiv);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-  }
+  // Quick Prompt Chips
+  document.querySelectorAll(".chip-btn").forEach(chip => {
+    chip.addEventListener("click", () => {
+      promptInput.value = chip.getAttribute("data-prompt");
+      promptInput.focus();
+    });
+  });
 
-  function createAgentBubble(initialText = "") {
-    const msgDiv = document.createElement("div");
-    msgDiv.className = "chat-msg agent";
-    msgDiv.innerHTML = `
-      <div class="msg-header">Antigravity</div>
-      <div class="msg-body">${initialText ? marked.parse(initialText) : '<span class="typing-indicator">...</span>'}</div>
-    `;
-    chatMessages.appendChild(msgDiv);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-    return msgDiv;
-  }
+  clearChatBtn.addEventListener("click", () => {
+    chatMessages.innerHTML = "";
+    thoughtFeed.innerHTML = '<div class="empty-state">Stream cleared. Ready for next request.</div>';
+    thoughtCount = 0;
+    if (thoughtCountBadge) thoughtCountBadge.textContent = "0 Events";
+  });
 
-  function addThoughtEvent(content, type) {
-    thoughtCount++;
-    if (thoughtCountBadge) thoughtCountBadge.textContent = `${thoughtCount} Events`;
+  // Tabs Switcher
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
+      
+      btn.classList.add("active");
+      const tabId = btn.getAttribute("data-tab");
+      document.getElementById(tabId).classList.add("active");
 
-    const card = document.createElement("div");
-    card.className = `event-card ${type}`;
-    const icon = type === "thought" ? "🧠 Reasoning Step" : "🛠️ Tool Call";
-    card.innerHTML = `
-      <div class="title">${icon}</div>
-      <div class="body">${escapeHtml(content)}</div>
-    `;
+      if (tabId === "tab-logs") {
+        fetchLogs();
+      }
+    });
+  });
 
-    const emptyState = thoughtFeed.querySelector(".empty-state");
-    if (emptyState) emptyState.remove();
+  // Fetch Transcripts & Load Previous Sessions
+  async function fetchLogs() {
+    logsFeed.innerHTML = '<div class="empty-state">Scanning local brain transcript logs...</div>';
+    try {
+      const res = await fetch("/api/transcripts");
+      const data = await res.json();
+      
+      if (!data || data.length === 0) {
+        logsFeed.innerHTML = '<div class="empty-state">No transcript logs found in `~/.gemini/antigravity/brain`.</div>';
+        return;
+      }
 
-    thoughtFeed.appendChild(card);
-    thoughtFeed.scrollTop = thoughtFeed.scrollHeight;
-  }
+      logsFeed.innerHTML = "";
+      data.forEach(item => {
+        const mtimeStr = item.mtime ? new Date(item.mtime * 1000).toLocaleString() : "Recent Session";
+        const card = document.createElement("div");
+        card.className = "event-card";
+        card.style.borderLeftColor = "#3B82F6";
+        card.innerHTML = `
+          <div class="title" style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+            <span style="font-weight:700; color:var(--text-primary);">📜 ID: ${item.conversation_id.substring(0, 8)}...</span>
+            <button class="btn btn-secondary load-session-btn" data-id="${item.conversation_id}" style="padding: 4px 10px; font-size: 0.72rem; border-radius: 4px;">▶ Load Session</button>
+          </div>
+          <div class="body" style="margin-top:6px; color:var(--text-muted);">
+            <div>📅 Modified: ${mtimeStr}</div>
+            <div>📊 Steps Logged: ${item.total_steps}</div>
+          </div>
+        `;
+        logsFeed.appendChild(card);
+      });
 
-  function handleProcessStart(event) {
-    processStartTime = Date.now();
-    const banner = document.createElement("div");
-    banner.id = "activeProcessBanner";
-    banner.className = "process-active-banner";
-    banner.innerHTML = `
-      <div>
-        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase;">⚡ Active Subprocess [PID: ${event.pid}]</div>
-        <div class="cmd-text">${escapeHtml(event.command)}</div>
-      </div>
-      <div class="timer-badge">
-        <span class="pulse-indicator"></span>
-        <span id="processTimerText">00:00</span>
-      </div>
-    `;
+      document.querySelectorAll(".load-session-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const convId = btn.getAttribute("data-id");
+          loadPreviousSession(convId);
+        });
+      });
 
-    const emptyState = thoughtFeed.querySelector(".empty-state");
-    if (emptyState) emptyState.remove();
-
-    thoughtFeed.prepend(banner);
-
-    if (activeProcessTimer) clearInterval(activeProcessTimer);
-    activeProcessTimer = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - processStartTime) / 1000);
-      const mins = String(Math.floor(elapsed / 60)).padStart(2, '0');
-      const secs = String(elapsed % 60).padStart(2, '0');
-      const timerEl = document.getElementById("processTimerText");
-      if (timerEl) timerEl.textContent = `${mins}:${secs}`;
-    }, 1000);
-  }
-
-  function handleProcessEnd(event) {
-    if (activeProcessTimer) clearInterval(activeProcessTimer);
-    const banner = document.getElementById("activeProcessBanner");
-    if (banner) {
-      banner.style.borderColor = event.exit_code === 0 ? "rgba(16, 185, 129, 0.4)" : "rgba(239, 68, 68, 0.4)";
-      banner.style.background = event.exit_code === 0 ? "rgba(16, 185, 129, 0.08)" : "rgba(239, 68, 68, 0.08)";
-      banner.innerHTML = `
-        <div>
-          <div style="font-size:0.7rem; color:var(--text-muted);">Process Finished (${event.duration}s)</div>
-          <div class="cmd-text" style="color:${event.exit_code === 0 ? '#34D399' : '#F87171'}">Exit Code: ${event.exit_code}</div>
-        </div>
-        <div class="timer-badge" style="background:rgba(255,255,255,0.08)">${event.duration}s</div>
-      `;
+    } catch (err) {
+      logsFeed.innerHTML = `<div class="empty-state" style="color:#EF4444;">Failed to load logs: ${err.message}</div>`;
     }
   }
+
+  async function loadPreviousSession(conversationId) {
+    try {
+      const res = await fetch(`/api/session/${conversationId}`);
+      const session = await res.json();
+      if (session.error) {
+        alert("Failed to load session: " + session.error);
+        return;
+      }
+
+      chatMessages.innerHTML = `
+        <div class="system-welcome">
+          <div class="welcome-card" style="border-color: var(--accent-indigo);">
+            <h3 style="color: var(--accent-indigo);">📜 Loaded Previous Session</h3>
+            <p style="margin-bottom:0;">Session ID: <code>${conversationId}</code> | Restored steps: ${session.messages ? session.messages.length : 0}</p>
+          </div>
+        </div>
+      `;
+      thoughtFeed.innerHTML = "";
+      thoughtCount = 0;
+
+      if (session.messages && session.messages.length > 0) {
+        session.messages.forEach(msg => {
+          if (msg.role === "user") {
+            createUserBubble(msg.text);
+          } else {
+            createAgentBubble(msg.text);
+          }
+        });
+      }
+
+      if (session.tool_calls && session.tool_calls.length > 0) {
+        session.tool_calls.forEach(tc => {
+          addThoughtEvent(`Tool: ${tc.name}\nArgs: ${JSON.stringify(tc.args, null, 2)}`, "tool");
+        });
+      }
+
+      document.querySelector('.tab-btn[data-tab="tab-thoughts"]').click();
+
+    } catch (err) {
+      alert("Error loading session: " + err.message);
+    }
+  }
+
+  refreshLogsBtn.addEventListener("click", fetchLogs);
+
+  // Webhook Modal Logic
+  webhookModalBtn.addEventListener("click", () => {
+    loadWebhookConfig();
+    webhookModal.classList.remove("hidden");
+  });
+
+  closeModalBtn.addEventListener("click", () => {
+    webhookModal.classList.add("hidden");
+  });
+
+  async function loadWebhookConfig() {
+    try {
+      const res = await fetch("/api/webhook/config");
+      const config = await res.json();
+      document.getElementById("tgToken").value = config.telegram_bot_token || "";
+      document.getElementById("tgChatId").value = config.telegram_chat_id || "";
+      document.getElementById("waUrl").value = config.whatsapp_webhook_url || "";
+      document.getElementById("poUser").value = config.pushover_user_key || "";
+      document.getElementById("poToken").value = config.pushover_api_token || "";
+      document.getElementById("autoNotifyCheck").checked = config.enable_auto_notify ?? true;
+    } catch (err) {
+      console.warn("Failed to load webhook config", err);
+    }
+  }
+
+  webhookForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      telegram_bot_token: document.getElementById("tgToken").value.trim(),
+      telegram_chat_id: document.getElementById("tgChatId").value.trim(),
+      whatsapp_webhook_url: document.getElementById("waUrl").value.trim(),
+      pushover_user_key: document.getElementById("poUser").value.trim(),
+      pushover_api_token: document.getElementById("poToken").value.trim(),
+      enable_auto_notify: document.getElementById("autoNotifyCheck").checked
+    };
+
+    try {
+      await fetch("/api/webhook/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      alert("Notification settings saved successfully!");
+      webhookModal.classList.add("hidden");
+    } catch (err) {
+      alert("Failed to save settings: " + err.message);
+    }
+  });
+
+  testNotifyBtn.addEventListener("click", async () => {
+    try {
+      const res = await fetch("/api/webhook/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Antigravity Bridge Test",
+          message: "Hello from Antigravity Remote Bridge! Your notification pipeline is working.",
+          target: "all"
+        })
+      });
+      const data = await res.json();
+      alert("Test alert dispatched! Result: " + JSON.stringify(data.results));
+    } catch (err) {
+      alert("Test alert failed: " + err.message);
+    }
+  });
 
   // Fetch System Status
   async function fetchStatus() {
