@@ -1,4 +1,4 @@
-// Antigravity Remote Bridge - Client JS with Real Google OAuth Sign-In Modal
+// Antigravity Remote Bridge - Client JS with Dynamic Target PC Google Auth Link Generation
 document.addEventListener("DOMContentLoaded", () => {
   let ws = null;
   let currentAgentBubble = null;
@@ -18,7 +18,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Google Login Modal Elements
   const googleLoginModal = document.getElementById("googleLoginModal");
   const closeGoogleModalBtn = document.getElementById("closeGoogleModalBtn");
-  const launchGoogleAuthBtn = document.getElementById("launchGoogleAuthBtn");
+  const generateCliAuthBtn = document.getElementById("generateCliAuthBtn");
   const googleCodeForm = document.getElementById("googleCodeForm");
   const googleAuthCode = document.getElementById("googleAuthCode");
 
@@ -99,10 +99,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // Google OAuth Modal Handlers
   if (switchAccountBtn) {
     switchAccountBtn.addEventListener("click", () => {
-      // Set official Google Accounts OAuth Sign-In URL
-      const googleOAuthUrl = "https://accounts.google.com/o/oauth2/v2/auth?client_id=764086051850-6qr4p6gfd6pfd7a8.apps.googleusercontent.com&response_type=code&scope=openid%20email%20profile&redirect_uri=urn:ietf:wg:oauth:2.0:oob";
-      if (launchGoogleAuthBtn) launchGoogleAuthBtn.href = googleOAuthUrl;
-
       if (googleLoginModal) {
         googleLoginModal.classList.remove("hidden");
         googleLoginModal.style.display = "flex";
@@ -112,6 +108,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (closeGoogleModalBtn) {
     closeGoogleModalBtn.addEventListener("click", () => {
+      if (googleLoginModal) {
+        googleLoginModal.classList.add("hidden");
+        googleLoginModal.style.display = "none";
+      }
+    });
+  }
+
+  if (generateCliAuthBtn) {
+    generateCliAuthBtn.addEventListener("click", () => {
+      sendPromptDirect("agy auth login");
       if (googleLoginModal) {
         googleLoginModal.classList.add("hidden");
         googleLoginModal.style.display = "none";
