@@ -1,4 +1,4 @@
-// Antigravity Remote Bridge - Client JS with Dynamic Target PC Google Auth Link Generation
+// Antigravity Remote Bridge - Client JS with Configured Google Client ID
 document.addEventListener("DOMContentLoaded", () => {
   let ws = null;
   let currentAgentBubble = null;
@@ -117,7 +117,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (generateCliAuthBtn) {
     generateCliAuthBtn.addEventListener("click", () => {
-      sendPromptDirect("agy auth login");
+      window.open("/api/auth/google", "_blank", "width=600,height=700");
       if (googleLoginModal) {
         googleLoginModal.classList.add("hidden");
         googleLoginModal.style.display = "none";
@@ -145,6 +145,15 @@ document.addEventListener("DOMContentLoaded", () => {
       googleAuthCode.value = "";
     });
   }
+
+  // Listen for OAuth Success Window Message
+  window.addEventListener("message", (event) => {
+    if (event.data && event.data.type === "google_auth_success") {
+      const email = event.data.email;
+      if (googleAccountBadge) googleAccountBadge.textContent = `🔑 Account: ${email}`;
+      sendPromptDirect("/auth-status");
+    }
+  });
 
   // Account Switch Button Actions
   if (checkAuthBtn) {

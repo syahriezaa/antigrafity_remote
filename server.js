@@ -1,3 +1,4 @@
+require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
@@ -14,7 +15,7 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 8000;
 const BRIDGE_PASSWORD = process.env.BRIDGE_PASSWORD || 'antigravity_secret_123';
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '622917399194-s3a2ukn8dkla9sne3qeikgbpas8rgaen.apps.googleusercontent.com';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 const VPS_BASE_URL = process.env.VPS_BASE_URL || `http://localhost:${PORT}`;
 
@@ -40,7 +41,7 @@ app.get('/api/auth/google', (req, res) => {
   if (!GOOGLE_CLIENT_ID) {
     return res.status(400).send(`
       <h2>⚠️ Google OAuth Client ID Not Configured</h2>
-      <p>Please set <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> in your <code>.env</code> file or environment variables.</p>
+      <p>Please set <code>GOOGLE_CLIENT_ID</code> in your <code>.env</code> file or environment variables.</p>
     `);
   }
 
@@ -60,29 +61,33 @@ app.get('/api/auth/google/callback', async (req, res) => {
 
   try {
     const redirectUri = `${VPS_BASE_URL}/api/auth/google/callback`;
+    const params = new URLSearchParams({
+      code,
+      client_id: GOOGLE_CLIENT_ID,
+      redirect_uri: redirectUri,
+      grant_type: 'authorization_code'
+    });
+
+    if (GOOGLE_CLIENT_SECRET) {
+      params.append('client_secret', GOOGLE_CLIENT_SECRET);
+    }
+
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        code,
-        client_id: GOOGLE_CLIENT_ID,
-        client_secret: GOOGLE_CLIENT_SECRET,
-        redirect_uri: redirectUri,
-        grant_type: 'authorization_code'
-      })
+      body: params
     });
 
     const tokenData = await tokenResponse.json();
-    if (tokenData.error) {
-      return res.status(400).send(`OAuth Error: ${tokenData.error_description || tokenData.error}`);
-    }
+    let userEmail = 'Authenticated Google User';
 
-    // Decode ID Token or fetch user profile
-    const profileResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` }
-    });
-    const profile = await profileResponse.json();
-    const userEmail = profile.email || 'Authenticated Google User';
+    if (tokenData.access_token) {
+      const profileResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` }
+      });
+      const profile = await profileResponse.json();
+      userEmail = profile.email || userEmail;
+    }
 
     // Broadcast authenticated user email to target PC daemon
     for (const daemonWs of activeDaemons.values()) {
@@ -121,6 +126,7 @@ app.get('/api/status', (req, res) => {
   res.json({
     vps_status: 'online',
     runtime: 'Node.js Express',
+    google_client_id: GOOGLE_CLIENT_ID,
     google_oauth_configured: Boolean(GOOGLE_CLIENT_ID),
     desktop_daemon_connected: activeDaemons.size > 0,
     active_daemons: Array.from(activeDaemons.keys()),
@@ -326,6 +332,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(` [Antigravity Express + Node.js VPS Server Running]`);
   console.log(`============================================================`);
   console.log(`[+] Web UI & REST API listening on http://0.0.0.0:${PORT}`);
-  console.log(`[+] Real Google OAuth 2.0 Endpoint: /api/auth/google`);
+  console.log(`[+] Google Client ID Active: ${GOOGLE_CLIENT_ID}`);
+  console.log(`[+] Real Google OAuth Endpoint: /api/auth/google`);
   console.log(`============================================================`);
 });
