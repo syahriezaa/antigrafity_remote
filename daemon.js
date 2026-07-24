@@ -261,14 +261,64 @@ Please specify the exact command to run, for example:
     }
   }
 
-  // 4. Direct Terminal Subprocess Execution
+  // 4. Progress Check / Status Intent ("check progress", "progres terakhir", "what changed", "status project")
+  const isProgressIntent = /(progres|progress|status|log|commit|changed|git status|recent work)/i.test(prompt);
+  if (isProgressIntent) {
+    ws.send(JSON.stringify({ type: 'thought', content: `Analyzing recent progress & git telemetry in ${projectDir}...` }));
+    ws.send(JSON.stringify({ type: 'tool_call', name: 'git_status_audit', args: { Cwd: projectDir } }));
+
+    let gitLog = '';
+    let gitStatus = '';
+    try {
+      gitLog = execSync('git log -n 5 --oneline', { cwd: projectDir, encoding: 'utf-8' }).trim();
+    } catch (e) {}
+
+    try {
+      gitStatus = execSync('git status --short', { cwd: projectDir, encoding: 'utf-8' }).trim();
+    } catch (e) {}
+
+    const projName = path.basename(projectDir);
+    let md = `## 📊 Antigravity IDE Progress & Work Audit [PC: ${DEVICE_NAME}]\n\n`;
+    md += `**Target Workspace:** \`${projName}\` (\`${projectDir}\`)\n\n`;
+
+    if (gitLog) {
+      md += `### 📜 Recent Git Commits\n\`\`\`text\n${gitLog}\n\`\`\`\n\n`;
+    }
+
+    if (gitStatus) {
+      const lines = gitStatus.split('\n');
+      md += `### 📝 Modified & Uncommitted Files (${lines.length} files)\n\`\`\`diff\n`;
+      lines.forEach(l => {
+        md += `+ ${l}\n`;
+      });
+      md += `\`\`\`\n\n`;
+    } else {
+      md += `### 🟢 Git Workspace Status\nWorkspace is clean. No uncommitted modifications detected.\n\n`;
+    }
+
+    const detectedCmd = autoDetectStartCommand(projectDir);
+    if (detectedCmd) {
+      md += `### 🚀 Recommended Next Action\nTo test or launch your application, run:\n\`\`\`bash\n${detectedCmd}\n\`\`\`\n`;
+    }
+
+    const words = md.split(' ');
+    for (const w of words) {
+      ws.send(JSON.stringify({ type: 'token', content: w + ' ' }));
+      await new Promise(r => setTimeout(r, 15));
+    }
+
+    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+    return;
+  }
+
+  // 5. Direct Terminal Subprocess Execution
   const isTerminal = /^(git|npm|python|node|pip|dir|ls|cargo|go|make|docker|pytest|npx|agy)\b/.test(prompt) || /\.(py|js|sh)$/.test(prompt);
   if (isTerminal) {
     runTerminalCommand(ws, prompt, projectDir);
     return;
   }
 
-  // 5. Conversational AI Assistant Engine (@google/genai or Assistant Response)
+  // 6. Conversational AI Assistant Engine (@google/genai or Assistant Response)
   ws.send(JSON.stringify({ type: 'thought', content: `Processing conversational query on ${DEVICE_NAME}...` }));
 
   if (GEMINI_API_KEY && GoogleGenAI) {
@@ -299,6 +349,7 @@ Please specify the exact command to run, for example:
 
 How can I assist you today? Here are a few things you can do:
 
+- 📊 **Audit Recent Work**: Type \`check progres kita terakhir\`
 - 🚀 **Run Active Application**: Type \`run the app\` or \`npm start\`
 - 🔑 **Check Google Auth Status**: Type \`/auth-status\`
 - 🌐 **Web Automation**: Type \`/browser https://google.com\`
@@ -310,7 +361,7 @@ How can I assist you today? Here are a few things you can do:
     return;
   }
 
-  // 6. Comprehensive Intelligent Response Engine
+  // 7. Comprehensive Antigravity IDE Response Engine
   let files = [];
   try {
     const items = fs.readdirSync(projectDir);
@@ -325,7 +376,7 @@ How can I assist you today? Here are a few things you can do:
   const projName = path.basename(projectDir);
   const detectedCmd = autoDetectStartCommand(projectDir);
 
-  let md = `## 🤖 Antigravity Assistant [PC: ${DEVICE_NAME}]\n\n`;
+  let md = `## 🤖 Antigravity Assistant Response [PC: ${DEVICE_NAME}]\n\n`;
   md += `Received instruction: **"${prompt}"**\n\n`;
   md += `### 📂 Target Workspace: \`${projName}\` (\`${projectDir}\`)\n`;
   md += `\`\`\`text\n${files.slice(0, 12).join('\n')}\n\`\`\`\n\n`;
@@ -333,7 +384,7 @@ How can I assist you today? Here are a few things you can do:
   if (detectedCmd) {
     md += `### 💡 Detected Application Command\nTo launch the application in this directory, click or type:\n\`\`\`bash\n${detectedCmd}\n\`\`\`\n`;
   } else {
-    md += `### 💡 Workspace Command Options\nYou can run any project command directly, e.g.:\n- \`npm start\`\n- \`python main.py\`\n- \`git status\`\n`;
+    md += `### 💡 Workspace Command Options\nYou can run any project command directly, e.g.:\n- \`check progres kita terakhir\`\n- \`npm start\`\n- \`python main.py\`\n- \`git status\`\n`;
   }
 
   const words = md.split(' ');
