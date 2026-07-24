@@ -17,7 +17,6 @@ const PORT = process.env.PORT || 8000;
 const BRIDGE_PASSWORD = process.env.BRIDGE_PASSWORD || 'antigravity_secret_123';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '622917399194-s3a2ukn8dkla9sne3qeikgbpas8rgaen.apps.googleusercontent.com';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
-const VPS_BASE_URL = process.env.VPS_BASE_URL || `http://localhost:${PORT}`;
 
 const ACTIVE_TOKENS = new Set();
 
@@ -36,7 +35,7 @@ app.post('/api/login', (req, res) => {
   return res.status(401).json({ detail: 'Invalid Bridge Password' });
 });
 
-// Real Google OAuth 2.0 Initiator Endpoint
+// Dynamic Google OAuth 2.0 Initiator Endpoint
 app.get('/api/auth/google', (req, res) => {
   if (!GOOGLE_CLIENT_ID) {
     return res.status(400).send(`
@@ -45,14 +44,16 @@ app.get('/api/auth/google', (req, res) => {
     `);
   }
 
-  const redirectUri = `${VPS_BASE_URL}/api/auth/google/callback`;
+  const host = req.headers.host || `localhost:${PORT}`;
+  const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+  const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
   const scope = encodeURIComponent('openid email profile');
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
 
   res.redirect(authUrl);
 });
 
-// Real Google OAuth 2.0 Callback Endpoint
+// Dynamic Google OAuth 2.0 Callback Endpoint
 app.get('/api/auth/google/callback', async (req, res) => {
   const code = req.query.code;
   if (!code) {
@@ -60,7 +61,10 @@ app.get('/api/auth/google/callback', async (req, res) => {
   }
 
   try {
-    const redirectUri = `${VPS_BASE_URL}/api/auth/google/callback`;
+    const host = req.headers.host || `localhost:${PORT}`;
+    const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+    const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
+
     const params = new URLSearchParams({
       code,
       client_id: GOOGLE_CLIENT_ID,
@@ -123,11 +127,16 @@ app.get('/api/auth/google/callback', async (req, res) => {
 
 // System Status Endpoint
 app.get('/api/status', (req, res) => {
+  const host = req.headers.host || `localhost:${PORT}`;
+  const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+  const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
+
   res.json({
     vps_status: 'online',
     runtime: 'Node.js Express',
     google_client_id: GOOGLE_CLIENT_ID,
     google_oauth_configured: Boolean(GOOGLE_CLIENT_ID),
+    active_redirect_uri: redirectUri,
     desktop_daemon_connected: activeDaemons.size > 0,
     active_daemons: Array.from(activeDaemons.keys()),
     active_clients: activeWebClients.size,
@@ -333,6 +342,6 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`============================================================`);
   console.log(`[+] Web UI & REST API listening on http://0.0.0.0:${PORT}`);
   console.log(`[+] Google Client ID Active: ${GOOGLE_CLIENT_ID}`);
-  console.log(`[+] Real Google OAuth Endpoint: /api/auth/google`);
+  console.log(`[+] Dynamic Google OAuth Endpoint: /api/auth/google`);
   console.log(`============================================================`);
 });
