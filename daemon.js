@@ -4,10 +4,15 @@ const path = require('path');
 const os = require('os');
 const { spawn, execSync } = require('child_process');
 const WebSocket = require('ws');
+let GoogleGenAI = null;
+try {
+  GoogleGenAI = require('@google/genai').GoogleGenAI;
+} catch (e) {}
 
 const VPS_SERVER_URL = process.env.VPS_SERVER_URL || 'ws://dev.junaidi-ai.com:8000';
 const BRIDGE_PASSWORD = process.env.BRIDGE_PASSWORD || 'antigravity_secret_123';
 const DEVICE_NAME = process.env.DEVICE_NAME || os.hostname();
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
 
 const appDataDir = path.join(os.homedir(), '.gemini', 'antigravity');
 const defaultWorkspace = path.join(appDataDir, 'scratch');
@@ -119,15 +124,6 @@ async function handlePromptStream(ws, payload) {
 - **Cookies Count:** \`${info.cookies_count || 0}\`
 - **Origins / LocalStorage:** \`${info.origins_count || 0}\`
 - **Last Updated:** \`${info.last_updated || 'Never'}\`
-
-\`\`\`javascript
-// Node.js Playwright Restored Session Storage
-const { chromium } = require('playwright');
-const browser = await chromium.launch({ headless: true });
-const context = await browser.newContext({ storageState: '${info.file_path}' });
-const page = await context.newPage();
-await page.goto('${url}');
-\`\`\`
 `;
       ws.send(JSON.stringify({ type: 'token', content: md }));
       ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
@@ -162,7 +158,7 @@ await page.goto('${url}');
 
 - **\`👥 /teamwork-preview <task>\`**: Spawn autonomous multi-agent team preview.
 - **\`🌐 /browser <url>\`**: Launch web automation using restored \`storageState.json\`.
-- **\`🔑 /auth-status\`**: Check logged-in Google identity on ${DEVICE_NAME}.
+- **\`🔑 /auth-status\`**: Check logged-in Google Account on ${DEVICE_NAME}.
 - **\`🚪 /auth-logout\`**: Revoke credentials on ${DEVICE_NAME}.
 - **\`🎯 /goal <desc>\`**: Run long-running execution.
 - **\`❓ /help\`**: Display this reference.
@@ -207,7 +203,48 @@ await page.goto('${url}');
     return;
   }
 
-  // 4. Default Workspace Inspection Engine
+  // 4. Conversational AI Assistant Engine (@google/genai or intelligent Assistant Response)
+  ws.send(JSON.stringify({ type: 'thought', content: `Processing conversational query on ${DEVICE_NAME}...` }));
+
+  if (GEMINI_API_KEY && GoogleGenAI) {
+    try {
+      const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+      const responseStream = await ai.models.generateContentStream({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+      });
+
+      for await (const chunk of responseStream) {
+        if (chunk.text) {
+          ws.send(JSON.stringify({ type: 'token', content: chunk.text }));
+        }
+      }
+
+      ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+      return;
+    } catch (err) {
+      console.warn('GenAI streaming error, falling back:', err.message);
+    }
+  }
+
+  // Conversational Fallback Greeting & Assistance
+  const greetings = ['hy', 'hi', 'hello', 'halo', 'hey', 'ping', 'test'];
+  if (greetings.includes(lowerPrompt)) {
+    const greetingMd = `👋 **Hello!** I am your **Antigravity AI Bridge Assistant** active on **${DEVICE_NAME}**.
+
+How can I assist you today? Here are a few things you can do:
+
+- 🔑 **Check Google Auth Status**: Type \`/auth-status\`
+- 🌐 **Web Automation**: Type \`/browser https://google.com\`
+- 👥 **Multi-Agent Preview**: Type \`/teamwork-preview Build a web app\`
+- 💻 **Terminal Commands**: Type \`git status\`, \`node -v\`, \`dir\`, or \`python script.py\`
+`;
+    ws.send(JSON.stringify({ type: 'token', content: greetingMd }));
+    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+    return;
+  }
+
+  // 5. Default Workspace Inspection Engine
   ws.send(JSON.stringify({ type: 'thought', content: `Inspecting directory on ${DEVICE_NAME}: ${projectDir}` }));
   ws.send(JSON.stringify({ type: 'tool_call', name: 'list_dir', args: { DirectoryPath: projectDir } }));
 
@@ -222,19 +259,10 @@ await page.goto('${url}');
     files = [`Unable to read directory: ${e.message}`];
   }
 
-  let gitStatus = '';
-  try {
-    gitStatus = execSync('git status --short', { cwd: projectDir, encoding: 'utf-8' }).trim();
-  } catch (e) {}
-
   const projName = path.basename(projectDir);
-  let md = `## 🔍 Workspace Status: **${projName}** [PC: ${DEVICE_NAME}]\n\n`;
-  md += `**Directory:** \`${projectDir}\`\n\n`;
-  md += `### 📂 Directory Items\n\`\`\`text\n${files.slice(0, 15).join('\n')}\n\`\`\`\n\n`;
-
-  if (gitStatus) {
-    md += `### 🌿 Git Workspace Status\n\`\`\`text\n${gitStatus}\n\`\`\`\n\n`;
-  }
+  let md = `## 🤖 Antigravity Assistant Response [PC: ${DEVICE_NAME}]\n\n`;
+  md += `Received prompt: *"${prompt}"*\n\n`;
+  md += `### 📂 Current Workspace Directory: \`${projName}\`\n\`\`\`text\n${files.slice(0, 10).join('\n')}\n\`\`\`\n`;
 
   const words = md.split(' ');
   for (const w of words) {
