@@ -18,7 +18,38 @@ if (!fs.existsSync(appDataDir)) fs.mkdirSync(appDataDir, { recursive: true });
 if (!fs.existsSync(cliDataDir)) fs.mkdirSync(cliDataDir, { recursive: true });
 if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
 
-let agCliStatus = 'running';
+function checkAgCliInstalled() {
+  try {
+    execSync('where agy', { encoding: 'utf-8' });
+    return true;
+  } catch (e) {
+    const agyLocal = path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'agy.cmd');
+    return fs.existsSync(agyLocal);
+  }
+}
+
+function autoInstallAgCli(ws) {
+  if (checkAgCliInstalled()) return true;
+
+  if (ws) {
+    ws.send(JSON.stringify({ type: 'thought', content: `[Auto-Installer] Antigravity CLI (agy) not detected on ${DEVICE_NAME}. Auto-installing globally...` }));
+  }
+  console.log(`[+] Auto-installing Antigravity CLI (agy) globally on ${DEVICE_NAME}...`);
+
+  try {
+    execSync('npm install -g @google/antigravity-cli --suppress-warnings', { encoding: 'utf-8', stdio: 'ignore' });
+    if (ws) ws.send(JSON.stringify({ type: 'thought', content: `[Auto-Installer] 🟢 Antigravity CLI (agy) installed successfully!` }));
+    return true;
+  } catch (err) {
+    try {
+      execSync('npm install -g agy --suppress-warnings', { encoding: 'utf-8', stdio: 'ignore' });
+      return true;
+    } catch (e) {
+      if (ws) ws.send(JSON.stringify({ type: 'thought', content: `[Auto-Installer] ⚠️ Note: Global npm install requires admin permissions or npx runner.` }));
+      return false;
+    }
+  }
+}
 
 function getGoogleAuthStatus() {
   let isAuth = false;
@@ -48,18 +79,12 @@ function getGoogleAuthStatus() {
   return { is_authenticated: isAuth, account_email: email, credential_path: credFile, access_token: accessToken };
 }
 
-function runTerminalCommand(ws, prompt, projectDir) {
-  const startTime = Date.now();
-  ws.send(JSON.stringify({ type: 'thought', content: `Spawning terminal command in \`${projectDir}\`: \`${prompt}\`` }));
-  ws.send(JSON.stringify({ type: 'tool_call', name: 'run_command', args: { CommandLine: prompt, Cwd: projectDir } }));
+function executePureAgCli(ws, prompt, projectDir) {
+  autoInstallAgCli(ws);
+  ws.send(JSON.stringify({ type: 'thought', content: `[Pure AG CLI Pipe] Executing \`agy --prompt "${prompt}"\` in ${projectDir}...` }));
 
-  const shellCmd = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
-  const shellArgs = process.platform === 'win32' ? ['/c', prompt] : ['-c', prompt];
-
-  const child = spawn(shellCmd, shellArgs, { cwd: projectDir });
-
-  ws.send(JSON.stringify({ type: 'process_start', pid: child.pid, command: prompt, cwd: projectDir }));
-  ws.send(JSON.stringify({ type: 'token', content: `\`\`\`terminal\n$ ${prompt}\n` }));
+  const agyCmd = checkAgCliInstalled() ? 'agy' : 'npx agy';
+  const child = spawn(agyCmd, ['--prompt', prompt], { cwd: projectDir, shell: true });
 
   child.stdout.on('data', (chunk) => {
     ws.send(JSON.stringify({ type: 'token', content: chunk.toString('utf-8') }));
@@ -70,59 +95,13 @@ function runTerminalCommand(ws, prompt, projectDir) {
   });
 
   child.on('close', (code) => {
-    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-    ws.send(JSON.stringify({ type: 'token', content: `\n[Process completed in ${duration}s with exit code ${code}]\n\`\`\`\n` }));
-    ws.send(JSON.stringify({ type: 'process_end', pid: child.pid, exit_code: code, duration }));
     ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
   });
-}
 
-function getSystemHardwareSummary() {
-  const totalMemGB = (os.totalmem() / (1024 * 1024 * 1024)).toFixed(2);
-  const freeMemGB = (os.freemem() / (1024 * 1024 * 1024)).toFixed(2);
-  const usedMemGB = (totalMemGB - freeMemGB).toFixed(2);
-  const ramPercent = (((totalMemGB - freeMemGB) / totalMemGB) * 100).toFixed(1);
-  const cpus = os.cpus();
-  const cpuModel = cpus.length > 0 ? cpus[0].model.trim() : 'Unknown CPU';
-
-  return `System Status for ${DEVICE_NAME} (${os.platform()}):
-- CPU: ${cpuModel} (${cpus.length} cores)
-- Total RAM: ${totalMemGB} GB
-- Used RAM: ${usedMemGB} GB (${ramPercent}%)
-- Free RAM: ${freeMemGB} GB`;
-}
-
-async function queryGoogleOAuthAI(prompt, projectDir, authStatus) {
-  const systemInstruction = `You are Antigravity, a powerful agentic AI coding assistant designed by Google DeepMind on host ${DEVICE_NAME} in workspace ${projectDir}. Respond naturally, concisely, and accurately as a senior software engineer.`;
-
-  const body = {
-    contents: [
-      {
-        role: 'user',
-        parts: [{ text: `${systemInstruction}\n\nUser Request: ${prompt}` }]
-      }
-    ]
-  };
-
-  // Try Google OAuth 2.0 Access Token Authorization
-  if (authStatus.access_token) {
-    try {
-      const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authStatus.access_token}`
-        },
-        body: JSON.stringify(body)
-      });
-      const data = await res.json();
-      if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
-        return data.candidates[0].content.parts[0].text;
-      }
-    } catch (e) {}
-  }
-
-  return null;
+  child.on('error', (err) => {
+    ws.send(JSON.stringify({ type: 'token', content: `⚠️ AG CLI Execution Error: ${err.message}\n` }));
+    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+  });
 }
 
 async function handlePromptStream(ws, payload) {
@@ -135,8 +114,8 @@ async function handlePromptStream(ws, payload) {
   if (['auth status', '/auth-status'].includes(lowerPrompt)) {
     const md = `### 🟢 Antigravity CLI Engine Status [${DEVICE_NAME}]
 
-- **AG CLI Engine Status:** ${agCliStatus === 'running' ? '🟢 RUNNING & ACTIVE' : '🔴 STOPPED'}
-- **Authentication Method:** Google OAuth 2.0 PKCE Login
+- **AG CLI Installed:** ${checkAgCliInstalled() ? '🟢 YES (`agy`)' : '🟡 Auto-Installing via npm'}
+- **Authentication:** Google OAuth 2.0 PKCE Login
 - **Google Account:** \`${authStatus.account_email}\`
 - **Target PC:** \`${DEVICE_NAME}\`
 - **Workspace:** \`${projectDir}\`
@@ -146,98 +125,29 @@ async function handlePromptStream(ws, payload) {
     return;
   }
 
-  // 2. Warning Card ONLY if CLI Engine is DEAD / STOPPED
-  if (agCliStatus !== 'running') {
-    const notStartedMd = `### ⚠️ Antigravity CLI (\`agy\`) is NOT started on ${DEVICE_NAME}
-
-To process prompts, **Antigravity CLI (\`agy\`)** engine must be started on your target machine.
-
----
-
-<button onclick="window.sendStartAgCli()" style="background:#4F46E5; color:#FFF; border:none; padding:10px 18px; border-radius:8px; font-weight:600; cursor:pointer; font-size:14px; box-shadow:0 4px 12px rgba(79,70,229,0.3);">
-🚀 Click Here to Start AG CLI Engine
-</button>
-`;
-    ws.send(JSON.stringify({ type: 'token', content: notStartedMd }));
-    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
-    return;
-  }
-
-  // 3. Direct Terminal Subprocess Execution
-  const isTerminal = /^(git|npm|python|node|pip|dir|ls|cargo|go|make|docker|pytest|npx|agy)\b/.test(prompt) || /\.(py|js|sh)$/.test(prompt);
-  if (isTerminal) {
-    runTerminalCommand(ws, prompt, projectDir);
-    return;
-  }
-
-  // 4. Hardware System Status Intent Execution
-  const isSystemStatusIntent = /(ram|memory|cpu|hardware|computer status|pc status|system status|specs|resources)/i.test(prompt);
-  if (isSystemStatusIntent) {
-    ws.send(JSON.stringify({ type: 'thought', content: `Executing hardware telemetry check on ${DEVICE_NAME}...` }));
-    ws.send(JSON.stringify({ type: 'tool_call', name: 'system_hardware_telemetry', args: { device: DEVICE_NAME } }));
-
-    const hwSummary = getSystemHardwareSummary();
-    const words = hwSummary.split(' ');
-    for (const w of words) {
-      ws.send(JSON.stringify({ type: 'token', content: w + ' ' }));
-      await new Promise(r => setTimeout(r, 12));
-    }
-    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
-    return;
-  }
-
-  // 5. Try Real Google OAuth 2.0 AI Stream
-  ws.send(JSON.stringify({ type: 'thought', content: `[Antigravity AG CLI Engine] Evaluating prompt via Google Account Session (${authStatus.account_email})...` }));
-
-  const oauthAiResponse = await queryGoogleOAuthAI(prompt, projectDir, authStatus);
-  if (oauthAiResponse) {
-    const words = oauthAiResponse.split(' ');
-    for (const w of words) {
-      ws.send(JSON.stringify({ type: 'token', content: w + ' ' }));
-      await new Promise(r => setTimeout(r, 12));
-    }
-    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
-    return;
-  }
-
-  // Conversational Fallback
-  const greetings = ['hy', 'hi', 'hello', 'halo', 'hey', 'ping', 'test'];
-  if (greetings.includes(lowerPrompt)) {
-    const greetingMd = `Hello! How can I help you with your project today?`;
-    ws.send(JSON.stringify({ type: 'token', content: greetingMd }));
-    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
-    return;
-  }
-
-  let cleanResponse = `I received your request: **"${prompt}"**.\n\nI am ready to inspect, edit, or execute tasks in your workspace \`${path.basename(projectDir)}\`. What specific changes or commands would you like me to perform?`;
-  const words = cleanResponse.split(' ');
-  for (const w of words) {
-    ws.send(JSON.stringify({ type: 'token', content: w + ' ' }));
-    await new Promise(r => setTimeout(r, 12));
-  }
-
-  ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+  // 2. Pure Direct Execution of AG CLI Subprocess (100% Zero Hardcoded Logic!)
+  executePureAgCli(ws, prompt, projectDir);
 }
 
 function connectDaemon() {
   const tunnelUrl = `${VPS_SERVER_URL.replace(/\/$/, '')}/ws/tunnel?auth_password=${BRIDGE_PASSWORD}&device_name=${DEVICE_NAME}`;
   console.log(`============================================================`);
-  console.log(` [Antigravity Headless AG CLI Engine RUNNING Client]`);
+  console.log(` [Antigravity Headless Pure AG CLI Pipe Daemon Client]`);
   console.log(`============================================================`);
   console.log(`[+] Device Registered: '${DEVICE_NAME}'`);
-  console.log(`[+] AG CLI Engine Status: RUNNING & ACTIVE`);
+  console.log(`[+] AG CLI Auto-Installer Engine: Active`);
   console.log(`[+] Outbound connecting to VPS Server: ${VPS_SERVER_URL} ...`);
 
   const ws = new WebSocket(tunnelUrl);
 
   ws.on('open', () => {
-    console.log(`[+] PC '${DEVICE_NAME}' connected to VPS Tunnel! AG CLI Engine ACTIVE.`);
+    console.log(`[+] PC '${DEVICE_NAME}' connected to VPS Tunnel! Pure AG CLI Pipe Ready.`);
   });
 
   ws.on('message', async (data) => {
     try {
       const payload = JSON.parse(data.toString());
-      console.log(`[+] PC '${DEVICE_NAME}' executing prompt: '${(payload.prompt || payload.type || '').substring(0, 40)}...'`);
+      console.log(`[+] PC '${DEVICE_NAME}' executing AG CLI prompt: '${(payload.prompt || payload.type || '').substring(0, 40)}...'`);
       await handlePromptStream(ws, payload);
     } catch (e) {
       ws.send(JSON.stringify({ type: 'error', content: e.message }));
