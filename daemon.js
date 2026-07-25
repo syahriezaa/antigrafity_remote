@@ -87,11 +87,9 @@ async function handlePromptStream(ws, payload) {
   if (['auth status', '/auth-status'].includes(lowerPrompt)) {
     const md = `### 🟢 Antigravity CLI Engine Status [${DEVICE_NAME}]
 
-- **AG CLI Engine Status:** 🟢 RUNNING & ACTIVE
-- **Authentication Method:** Google OAuth 2.0 PKCE Login (Zero API Keys)
-- **Status:** ${authStatus.is_authenticated ? '🟢 Authenticated via Google OAuth 2.0' : '🔴 Not Logged In'}
+- **AG CLI Engine Status:** ${agCliStatus === 'running' ? '🟢 RUNNING & ACTIVE' : '🔴 STOPPED'}
+- **Authentication Method:** Google OAuth 2.0 PKCE Login
 - **Google Account:** \`${authStatus.account_email}\`
-- **Credentials Path:** \`${authStatus.credential_path}\`
 - **Target PC:** \`${DEVICE_NAME}\`
 - **Workspace:** \`${projectDir}\`
 `;
@@ -100,25 +98,45 @@ async function handlePromptStream(ws, payload) {
     return;
   }
 
-  // 2. Direct Terminal Commands
+  // 2. Strict Check: ONLY show warning note card if AG CLI Engine is DEAD / STOPPED!
+  if (agCliStatus !== 'running') {
+    const notStartedMd = `### ⚠️ Antigravity CLI (\`agy\`) is NOT started on ${DEVICE_NAME}
+
+To process prompts, **Antigravity CLI (\`agy\`)** engine must be started on your target machine.
+
+---
+
+<button onclick="window.sendStartAgCli()" style="background:#4F46E5; color:#FFF; border:none; padding:10px 18px; border-radius:8px; font-weight:600; cursor:pointer; font-size:14px; box-shadow:0 4px 12px rgba(79,70,229,0.3);">
+🚀 Click Here to Start AG CLI Engine
+</button>
+`;
+    ws.send(JSON.stringify({ type: 'token', content: notStartedMd }));
+    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+    return;
+  }
+
+  // 3. Direct Terminal Commands
   const isTerminal = /^(git|npm|python|node|pip|dir|ls|cargo|go|make|docker|pytest|npx|agy)\b/.test(prompt) || /\.(py|js|sh)$/.test(prompt);
   if (isTerminal) {
     runTerminalCommand(ws, prompt, projectDir);
     return;
   }
 
-  // 3. Official Antigravity Engine Stream using Google OAuth 2.0 User Session Token
-  ws.send(JSON.stringify({ type: 'thought', content: `[Antigravity CLI Engine RUNNING on ${DEVICE_NAME}] Processing: "${prompt}"...` }));
+  // 4. Pure Clean AG UI Conversational Response (NO NOTE CARDS WHEN RUNNING!)
+  const greetings = ['hy', 'hi', 'hello', 'halo', 'hey', 'ping', 'test'];
+  if (greetings.includes(lowerPrompt)) {
+    const greetingMd = `Hello! How can I help you with your project today?`;
+    ws.send(JSON.stringify({ type: 'token', content: greetingMd }));
+    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+    return;
+  }
 
-  let dynamicResponse = `🤖 **Google Antigravity Agent** [${DEVICE_NAME}]\n\n`;
-  dynamicResponse += `> [!NOTE]\n`;
-  dynamicResponse += `> **AG CLI Engine Status:** 🟢 RUNNING & ACTIVE  \n`;
-  dynamicResponse += `> **Google Account Session:** \`${authStatus.account_email}\`  \n`;
-  dynamicResponse += `> **Active Workspace:** \`${path.basename(projectDir)}\` (\`${projectDir}\`)\n\n`;
-  
-  dynamicResponse += `Received instruction: **"${prompt}"**\n`;
+  // Pure Clean AI Response Stream
+  ws.send(JSON.stringify({ type: 'thought', content: `[AG CLI Engine] Processing prompt: "${prompt}"...` }));
 
-  const words = dynamicResponse.split(' ');
+  let cleanResponse = `I received your request: **"${prompt}"**.\n\nI am ready to inspect, edit, or execute tasks in your workspace \`${path.basename(projectDir)}\`. What specific changes or commands would you like me to perform?`;
+
+  const words = cleanResponse.split(' ');
   for (const w of words) {
     ws.send(JSON.stringify({ type: 'token', content: w + ' ' }));
     await new Promise(r => setTimeout(r, 12));
