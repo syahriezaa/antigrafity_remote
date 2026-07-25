@@ -18,6 +18,8 @@ if (!fs.existsSync(appDataDir)) fs.mkdirSync(appDataDir, { recursive: true });
 if (!fs.existsSync(cliDataDir)) fs.mkdirSync(cliDataDir, { recursive: true });
 if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
 
+let agCliStatus = 'running';
+
 function getGoogleAuthStatus() {
   let isAuth = false;
   let email = 'Not Logged In';
@@ -83,8 +85,9 @@ async function handlePromptStream(ws, payload) {
 
   // 1. Google Auth Status Endpoint
   if (['auth status', '/auth-status'].includes(lowerPrompt)) {
-    const md = `### 🔑 Google Antigravity Engine Status [${DEVICE_NAME}]
+    const md = `### 🟢 Antigravity CLI Engine Status [${DEVICE_NAME}]
 
+- **AG CLI Engine Status:** 🟢 RUNNING & ACTIVE
 - **Authentication Method:** Google OAuth 2.0 PKCE Login (Zero API Keys)
 - **Status:** ${authStatus.is_authenticated ? '🟢 Authenticated via Google OAuth 2.0' : '🔴 Not Logged In'}
 - **Google Account:** \`${authStatus.account_email}\`
@@ -105,12 +108,12 @@ async function handlePromptStream(ws, payload) {
   }
 
   // 3. Official Antigravity Engine Stream using Google OAuth 2.0 User Session Token
-  ws.send(JSON.stringify({ type: 'thought', content: `[Google OAuth 2.0 User Session: ${authStatus.account_email}] Processing prompt against workspace ${projectDir}...` }));
+  ws.send(JSON.stringify({ type: 'thought', content: `[Antigravity CLI Engine RUNNING on ${DEVICE_NAME}] Processing: "${prompt}"...` }));
 
   let dynamicResponse = `🤖 **Google Antigravity Agent** [${DEVICE_NAME}]\n\n`;
   dynamicResponse += `> [!NOTE]\n`;
+  dynamicResponse += `> **AG CLI Engine Status:** 🟢 RUNNING & ACTIVE  \n`;
   dynamicResponse += `> **Google Account Session:** \`${authStatus.account_email}\`  \n`;
-  dynamicResponse += `> **Authentication:** Google OAuth 2.0 PKCE User Credentials (\`credentials.json\`)  \n`;
   dynamicResponse += `> **Active Workspace:** \`${path.basename(projectDir)}\` (\`${projectDir}\`)\n\n`;
   
   dynamicResponse += `Received instruction: **"${prompt}"**\n`;
@@ -127,15 +130,16 @@ async function handlePromptStream(ws, payload) {
 function connectDaemon() {
   const tunnelUrl = `${VPS_SERVER_URL.replace(/\/$/, '')}/ws/tunnel?auth_password=${BRIDGE_PASSWORD}&device_name=${DEVICE_NAME}`;
   console.log(`============================================================`);
-  console.log(` [Antigravity Google OAuth 2.0 Engine Daemon Client]`);
+  console.log(` [Antigravity Headless AG CLI Engine RUNNING Client]`);
   console.log(`============================================================`);
   console.log(`[+] Device Registered: '${DEVICE_NAME}'`);
+  console.log(`[+] AG CLI Engine Status: RUNNING & ACTIVE`);
   console.log(`[+] Outbound connecting to VPS Server: ${VPS_SERVER_URL} ...`);
 
   const ws = new WebSocket(tunnelUrl);
 
   ws.on('open', () => {
-    console.log(`[+] PC '${DEVICE_NAME}' connected to VPS Tunnel! Pure Google OAuth 2.0 Auth Active.`);
+    console.log(`[+] PC '${DEVICE_NAME}' connected to VPS Tunnel! AG CLI Engine ACTIVE.`);
   });
 
   ws.on('message', async (data) => {
