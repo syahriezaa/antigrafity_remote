@@ -9,6 +9,11 @@ document.addEventListener("DOMContentLoaded", () => {
   let isSubagentsActive = false;
   let sessionToken = localStorage.getItem("bridge_token") || "";
 
+  // Global Start AG CLI Action
+  window.sendStartAgCli = function() {
+    sendPromptDirect("/start-ag-cli");
+  };
+
   // Auth Elements
   const authModal = document.getElementById("authModal");
   const authForm = document.getElementById("authForm");

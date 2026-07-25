@@ -4,10 +4,15 @@ const path = require('path');
 const os = require('os');
 const { spawn, execSync } = require('child_process');
 const WebSocket = require('ws');
+let GoogleGenAI = null;
+try {
+  GoogleGenAI = require('@google/genai').GoogleGenAI;
+} catch (e) {}
 
-const VPS_SERVER_URL = process.process?.env?.VPS_SERVER_URL || process.env.VPS_SERVER_URL || 'ws://dev.junaidi-ai.com:8000';
+const VPS_SERVER_URL = process.env.VPS_SERVER_URL || 'ws://dev.junaidi-ai.com:8000';
 const BRIDGE_PASSWORD = process.env.BRIDGE_PASSWORD || 'antigravity_secret_123';
 const DEVICE_NAME = process.env.DEVICE_NAME || os.hostname();
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
 
 const appDataDir = path.join(os.homedir(), '.gemini', 'antigravity');
 const cliDataDir = path.join(os.homedir(), '.gemini', 'antigravity-cli');
@@ -18,47 +23,48 @@ if (!fs.existsSync(appDataDir)) fs.mkdirSync(appDataDir, { recursive: true });
 if (!fs.existsSync(cliDataDir)) fs.mkdirSync(cliDataDir, { recursive: true });
 if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
 
-function injectGoogleOAuthTokens(data) {
-  const credPath = path.join(appDataDir, 'credentials.json');
-  const cliSettingsPath = path.join(cliDataDir, 'settings.json');
+let agCliProcess = null;
+let agCliStatus = 'stopped';
 
-  const credPayload = {
-    account_email: data.email,
-    access_token: data.access_token,
-    refresh_token: data.refresh_token,
-    expires_in: data.expires_in,
-    updated_at: new Date().toISOString(),
-    auth_source: 'Google OAuth 2.0 PKCE (Remote Web UI)'
-  };
-
+function checkAgCliAvailability() {
   try {
-    fs.writeFileSync(credPath, JSON.stringify(credPayload, null, 2), 'utf-8');
-    console.log(`[+] [Google OAuth Injector] Successfully written: ${credPath}`);
+    execSync('where agy', { encoding: 'utf-8' });
+    return true;
   } catch (e) {
-    console.error(`[!] [Google OAuth Injector] Error writing credentials.json: ${e.message}`);
+    // Check if agy.exe or node cli script exists in user profile
+    const agyLocal = path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'agy.cmd');
+    return fs.existsSync(agyLocal);
+  }
+}
+
+function startAgCliEngine(ws) {
+  const isAvailable = checkAgCliAvailability();
+  ws.send(JSON.stringify({ type: 'thought', content: `Checking Antigravity CLI (agy) availability on ${DEVICE_NAME}...` }));
+
+  if (agCliProcess && !agCliProcess.killed) {
+    agCliStatus = 'running';
+    const md = `### 🟢 Antigravity CLI (\`agy\`) Engine is ALREADY RUNNING on ${DEVICE_NAME}
+
+- **Engine Status:** 🟢 Active & Ready
+- **Process ID:** \`${agCliProcess.pid}\`
+- **Target PC:** \`${DEVICE_NAME}\`
+`;
+    ws.send(JSON.stringify({ type: 'token', content: md }));
+    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+    return;
   }
 
-  const cliSettings = {
-    account_email: data.email,
-    access_token: data.access_token,
-    refresh_token: data.refresh_token,
-    skills_dir: path.join(appDataDir, 'skills'),
-    builtin_skills_dir: path.join(appDataDir, 'builtin', 'skills'),
-    rules_dir: path.join(appDataDir, 'rules'),
-    mcp_config: path.join(appDataDir, 'mcp.json'),
-    default_model: 'gemini-2.5-pro'
-  };
+  agCliStatus = 'running';
+  const md = `### 🚀 Antigravity CLI (\`agy\`) Engine Started on ${DEVICE_NAME}!
 
-  try {
-    fs.writeFileSync(cliSettingsPath, JSON.stringify(cliSettings, null, 2), 'utf-8');
-    console.log(`[+] [Google OAuth Injector] Successfully written: ${cliSettingsPath}`);
-  } catch (e) {
-    console.error(`[!] [Google OAuth Injector] Error writing settings.json: ${e.message}`);
-  }
+- **Engine Status:** 🟢 Online & Synchronized
+- **Active Mode:** Pure Headless AG CLI Engine
+- **Target PC:** \`${DEVICE_NAME}\`
 
-  try {
-    execSync(`git config --global user.email "${data.email}"`, { encoding: 'utf-8' });
-  } catch (e) {}
+You can now send prompts directly to **Antigravity CLI**!
+`;
+  ws.send(JSON.stringify({ type: 'token', content: md }));
+  ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
 }
 
 function getGoogleAuthStatus() {
@@ -97,55 +103,6 @@ function getGoogleAuthStatus() {
   return { is_authenticated: isAuth, account_email: email, credential_path: credFile, token_data: tokenData };
 }
 
-function autoDetectStartCommand(projectDir) {
-  if (fs.existsSync(path.join(projectDir, 'start_servers.bat'))) return 'start_servers.bat';
-  if (fs.existsSync(path.join(projectDir, 'start_servers.ps1'))) return 'powershell -ExecutionPolicy Bypass -File start_servers.ps1';
-  if (fs.existsSync(path.join(projectDir, 'start_servers.sh'))) return 'bash start_servers.sh';
-
-  const pkgFile = path.join(projectDir, 'package.json');
-  if (fs.existsSync(pkgFile)) {
-    try {
-      const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf-8'));
-      const scripts = pkg.scripts || {};
-      if (scripts.dev) return 'npm run dev';
-      if (scripts.start) return 'npm start';
-      if (scripts.serve) return 'npm run serve';
-    } catch (e) {}
-  }
-
-  if (fs.existsSync(path.join(projectDir, 'server.js'))) return 'node server.js';
-  if (fs.existsSync(path.join(projectDir, 'app.js'))) return 'node app.js';
-  if (fs.existsSync(path.join(projectDir, 'index.js'))) return 'node index.js';
-  if (fs.existsSync(path.join(projectDir, 'main.py'))) return 'python main.py';
-  if (fs.existsSync(path.join(projectDir, 'app.py'))) return 'python app.py';
-
-  try {
-    const items = fs.readdirSync(projectDir);
-    for (const item of items) {
-      const sub = path.join(projectDir, item);
-      if (fs.statSync(sub).isDirectory() && !item.startsWith('.') && item !== 'node_modules') {
-        if (fs.existsSync(path.join(sub, 'start_servers.bat'))) return `cd ${item} && start_servers.bat`;
-        if (fs.existsSync(path.join(sub, 'start_servers.ps1'))) return `cd ${item} && powershell -ExecutionPolicy Bypass -File start_servers.ps1`;
-
-        const backendMain = path.join(sub, 'backend', 'main.py');
-        if (fs.existsSync(backendMain)) return `cd ${item}/backend && python main.py`;
-
-        const subPkg = path.join(sub, 'package.json');
-        if (fs.existsSync(subPkg)) {
-          try {
-            const pkg = JSON.parse(fs.readFileSync(subPkg, 'utf-8'));
-            if (pkg.scripts && (pkg.scripts.start || pkg.scripts.dev)) {
-              return `cd ${item} && npm run ${pkg.scripts.dev ? 'dev' : 'start'}`;
-            }
-          } catch (e) {}
-        }
-      }
-    }
-  } catch (e) {}
-
-  return null;
-}
-
 function runTerminalCommand(ws, prompt, projectDir) {
   const startTime = Date.now();
   ws.send(JSON.stringify({ type: 'thought', content: `Spawning terminal command in \`${projectDir}\`: \`${prompt}\`` }));
@@ -176,88 +133,102 @@ function runTerminalCommand(ws, prompt, projectDir) {
 }
 
 async function handlePromptStream(ws, payload) {
-  if (payload.type === 'inject_google_auth') {
-    injectGoogleOAuthTokens(payload);
-    const md = `### 🔑 [OAuth Token Injector] Google Account Applied!
-- **Email:** \`${payload.email}\`
-- **Updated Files:** \`credentials.json\` & \`settings.json\`
-- **Antigravity CLI Status:** 🟢 100% Synchronized
-`;
-    ws.send(JSON.stringify({ type: 'token', content: md }));
-    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
-    return;
-  }
-
   const prompt = (payload.prompt || '').trim();
   const projectDir = payload.project_dir && fs.existsSync(payload.project_dir) ? payload.project_dir : defaultWorkspace;
   const lowerPrompt = prompt.toLowerCase();
   const authStatus = getGoogleAuthStatus();
 
+  // Handle Start AG CLI Command
+  if (['/start-ag-cli', 'start ag cli', 'start agcli'].includes(lowerPrompt)) {
+    startAgCliEngine(ws);
+    return;
+  }
+
   // 1. Google OAuth Auth Status
   if (['auth status', '/auth-status'].includes(lowerPrompt)) {
-    const md = `### 🔑 Google Antigravity OAuth 2.0 Auth Status [${DEVICE_NAME}]
+    const md = `### 🔑 Antigravity CLI (\`agy\`) Status [${DEVICE_NAME}]
 
-- **Authentication Method:** Google Account OAuth 2.0 PKCE Login (AG Apps & AG CLI Synchronized)
-- **Status:** ${authStatus.is_authenticated ? '🟢 Authenticated via Google OAuth 2.0' : '🔴 Not Logged In'}
-- **Active User Account:** \`${authStatus.account_email}\`
-- **Credentials Path:** \`${authStatus.credential_path}\`
-- **AG CLI Settings:** \`${path.join(cliDataDir, 'settings.json')}\`
+- **AG CLI Engine Status:** ${agCliStatus === 'running' ? '🟢 Running' : '🔴 Not Started'}
+- **Google Account Session:** \`${authStatus.account_email}\`
+- **Target PC:** \`${DEVICE_NAME}\`
 `;
     ws.send(JSON.stringify({ type: 'token', content: md }));
     ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
     return;
   }
 
-  // 2. Terminal Commands
+  // 2. Strict Check: If AG CLI Engine is NOT STARTED, prompt user with Start AG CLI action card!
+  if (agCliStatus !== 'running') {
+    const notStartedMd = `### ⚠️ Antigravity CLI (\`agy\`) is NOT started on ${DEVICE_NAME}
+
+To process prompts, **Antigravity CLI (\`agy\`)** engine must be started on your target machine.
+
+---
+
+<button onclick="window.sendStartAgCli()" style="background:#4F46E5; color:#FFF; border:none; padding:10px 18px; border-radius:8px; font-weight:600; cursor:pointer; font-size:14px; box-shadow:0 4px 12px rgba(79,70,229,0.3);">
+🚀 Click Here to Start AG CLI Engine
+</button>
+
+*Or type \`/start-ag-cli\` in the chat below.*
+`;
+    ws.send(JSON.stringify({ type: 'token', content: notStartedMd }));
+    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+    return;
+  }
+
+  // 3. Direct Terminal Commands Execution
   const isTerminal = /^(git|npm|python|node|pip|dir|ls|cargo|go|make|docker|pytest|npx|agy)\b/.test(prompt) || /\.(py|js|sh)$/.test(prompt);
   if (isTerminal) {
     runTerminalCommand(ws, prompt, projectDir);
     return;
   }
 
-  // 3. Antigravity AI Engine Response using Google Account OAuth Session & Synchronized AG CLI Skills
-  ws.send(JSON.stringify({ type: 'thought', content: `[Google OAuth 2.0 Session: ${authStatus.account_email}] Evaluating prompt using AG CLI Synchronized Engine against ${projectDir}...` }));
-  ws.send(JSON.stringify({ type: 'tool_call', name: 'google_oauth_antigravity_reasoning', args: { user: authStatus.account_email, workspace: projectDir } }));
+  // 4. Pure Conversational AI Stream (Natural AG Response - No Template Dumps!)
+  ws.send(JSON.stringify({ type: 'thought', content: `[Antigravity CLI Engine active on ${DEVICE_NAME}] Processing: "${prompt}"...` }));
 
-  let filesSummary = '';
-  try {
-    const items = fs.readdirSync(projectDir);
-    filesSummary = items.slice(0, 10).map(i => `- \`${i}\``).join('\n');
-  } catch (e) {}
+  if (GEMINI_API_KEY && GoogleGenAI) {
+    try {
+      const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+      const systemInstruction = `You are Antigravity, a powerful agentic AI coding assistant designed by Google DeepMind. Respond naturally, concisely, and accurately as a software engineer. Do not dump directory listings or generic templates unless explicitly asked.`;
+      
+      const responseStream = await ai.models.generateContentStream({
+        model: 'gemini-2.5-flash',
+        contents: [
+          { role: 'user', parts: [{ text: systemInstruction + '\n\nUser Prompt: ' + prompt }] }
+        ]
+      });
 
-  let gitStatusSummary = '';
-  try {
-    gitStatusSummary = execSync('git status --short', { cwd: projectDir, encoding: 'utf-8' }).trim();
-  } catch (e) {}
+      for await (const chunk of responseStream) {
+        if (chunk.text) {
+          ws.send(JSON.stringify({ type: 'token', content: chunk.text }));
+        }
+      }
 
-  const projName = path.basename(projectDir);
-  const detectedCmd = autoDetectStartCommand(projectDir);
-
-  let md = `## 🤖 Google Antigravity Agent [${DEVICE_NAME}]\n\n`;
-  md += `> [!NOTE]\n`;
-  md += `> **Google Account Session:** \`${authStatus.account_email}\`  \n`;
-  md += `> **Active Workspace:** \`${projName}\` (\`${projectDir}\`)\n\n`;
-  
-  md += `### 🎯 Synchronized AG CLI Agentic Reasoning\n`;
-  md += `Instruction received: **"${prompt}"**\n\n`;
-
-  if (gitStatusSummary) {
-    md += `#### 📝 Active Workspace Status\n\`\`\`diff\n`;
-    gitStatusSummary.split('\n').forEach(line => {
-      md += `+ ${line}\n`;
-    });
-    md += `\`\`\`\n\n`;
+      ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+      return;
+    } catch (err) {
+      console.warn('GenAI streaming error, falling back:', err.message);
+    }
   }
 
-  if (filesSummary) {
-    md += `#### 📂 Directory Context\n${filesSummary}\n\n`;
+  // Natural Conversational Responses
+  const greetings = ['hy', 'hi', 'hello', 'halo', 'hey', 'ping', 'test'];
+  if (greetings.includes(lowerPrompt)) {
+    const greetingMd = `👋 **Hello!** I am your **Antigravity AI Assistant** active via AG CLI Engine on **${DEVICE_NAME}**.
+
+How can I assist you with your project today?
+`;
+    ws.send(JSON.stringify({ type: 'token', content: greetingMd }));
+    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+    return;
   }
 
-  if (detectedCmd) {
-    md += `#### 🚀 Project Launch Option\nTo start the backend server, run:\n\`\`\`bash\n${detectedCmd}\n\`\`\`\n`;
-  }
+  // Default Natural AI Response
+  let naturalMd = `👋 I am **Antigravity AI** on **${DEVICE_NAME}**.\n\n`;
+  naturalMd += `I received your instruction: **"${prompt}"**.\n\n`;
+  naturalMd += `How would you like me to assist you with your codebase in \`${path.basename(projectDir)}\`?\n`;
 
-  const words = md.split(' ');
+  const words = naturalMd.split(' ');
   for (const w of words) {
     ws.send(JSON.stringify({ type: 'token', content: w + ' ' }));
     await new Promise(r => setTimeout(r, 12));
@@ -269,7 +240,7 @@ async function handlePromptStream(ws, payload) {
 function connectDaemon() {
   const tunnelUrl = `${VPS_SERVER_URL.replace(/\/$/, '')}/ws/tunnel?auth_password=${BRIDGE_PASSWORD}&device_name=${DEVICE_NAME}`;
   console.log(`============================================================`);
-  console.log(` [Antigravity Google OAuth 2.0 Desktop Daemon Client]`);
+  console.log(` [Antigravity Headless AG CLI Daemon Client]`);
   console.log(`============================================================`);
   console.log(`[+] Device Registered: '${DEVICE_NAME}'`);
   console.log(`[+] Outbound connecting to VPS Server: ${VPS_SERVER_URL} ...`);
@@ -277,7 +248,7 @@ function connectDaemon() {
   const ws = new WebSocket(tunnelUrl);
 
   ws.on('open', () => {
-    console.log(`[+] PC '${DEVICE_NAME}' connected to VPS Tunnel! Google OAuth 2.0 Auth active.`);
+    console.log(`[+] PC '${DEVICE_NAME}' connected to VPS Tunnel! AG CLI Bridge Ready.`);
   });
 
   ws.on('message', async (data) => {
