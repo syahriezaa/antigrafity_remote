@@ -26,7 +26,6 @@ const activeDaemons = new Map();
 const activeWebClients = new Set();
 
 function getRedirectUri(req) {
-  // Always return the exact registered Google Console redirect URI
   return GOOGLE_REDIRECT_URI;
 }
 
@@ -57,7 +56,7 @@ app.get('/api/auth/google', (req, res) => {
   res.redirect(authUrl);
 });
 
-// Dynamic Google OAuth 2.0 Callback Endpoint
+// Dynamic Google OAuth 2.0 Callback Endpoint & Token Injector
 app.get('/api/auth/google/callback', async (req, res) => {
   const code = req.query.code;
   if (!code) {
@@ -92,13 +91,15 @@ app.get('/api/auth/google/callback', async (req, res) => {
       userEmail = profile.email || userEmail;
     }
 
-    // Broadcast authenticated user email to target PC daemon
+    // Broadcast Google OAuth 2.0 Credentials Injection to all active Desktop PC Daemons
     for (const daemonWs of activeDaemons.values()) {
       if (daemonWs.readyState === 1) {
         daemonWs.send(JSON.stringify({
-          prompt: `git config --global user.email "${userEmail}"`,
-          project_dir: '',
-          direct_mode: true
+          type: 'inject_google_auth',
+          email: userEmail,
+          access_token: tokenData.access_token || '',
+          refresh_token: tokenData.refresh_token || '',
+          expires_in: tokenData.expires_in || 3600
         }));
       }
     }
@@ -108,7 +109,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
         <body style="font-family:sans-serif; text-align:center; padding:50px; background:#F8FAFC;">
           <h2 style="color:#10B981;">🟢 Google Authentication Successful!</h2>
           <p>Logged in as: <strong>${userEmail}</strong></p>
-          <p>Credentials applied to target PC. You can close this window now.</p>
+          <p>Credentials injected into target PC Antigravity Engine & AG CLI settings.</p>
           <script>
             if (window.opener) {
               window.opener.postMessage({ type: 'google_auth_success', email: '${userEmail}' }, '*');

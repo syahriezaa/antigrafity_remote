@@ -5,16 +5,60 @@ const os = require('os');
 const { spawn, execSync } = require('child_process');
 const WebSocket = require('ws');
 
-const VPS_SERVER_URL = process.env.VPS_SERVER_URL || 'ws://dev.junaidi-ai.com:8000';
+const VPS_SERVER_URL = process.process?.env?.VPS_SERVER_URL || process.env.VPS_SERVER_URL || 'ws://dev.junaidi-ai.com:8000';
 const BRIDGE_PASSWORD = process.env.BRIDGE_PASSWORD || 'antigravity_secret_123';
 const DEVICE_NAME = process.env.DEVICE_NAME || os.hostname();
 
 const appDataDir = path.join(os.homedir(), '.gemini', 'antigravity');
+const cliDataDir = path.join(os.homedir(), '.gemini', 'antigravity-cli');
 const defaultWorkspace = path.join(appDataDir, 'scratch');
 const sessionDir = path.join(appDataDir, 'browser_sessions');
 
-if (!fs.existsSync(sessionDir)) {
-  fs.mkdirSync(sessionDir, { recursive: true });
+if (!fs.existsSync(appDataDir)) fs.mkdirSync(appDataDir, { recursive: true });
+if (!fs.existsSync(cliDataDir)) fs.mkdirSync(cliDataDir, { recursive: true });
+if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
+
+function injectGoogleOAuthTokens(data) {
+  const credPath = path.join(appDataDir, 'credentials.json');
+  const cliSettingsPath = path.join(cliDataDir, 'settings.json');
+
+  const credPayload = {
+    account_email: data.email,
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    expires_in: data.expires_in,
+    updated_at: new Date().toISOString(),
+    auth_source: 'Google OAuth 2.0 PKCE (Remote Web UI)'
+  };
+
+  try {
+    fs.writeFileSync(credPath, JSON.stringify(credPayload, null, 2), 'utf-8');
+    console.log(`[+] [Google OAuth Injector] Successfully written: ${credPath}`);
+  } catch (e) {
+    console.error(`[!] [Google OAuth Injector] Error writing credentials.json: ${e.message}`);
+  }
+
+  const cliSettings = {
+    account_email: data.email,
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    skills_dir: path.join(appDataDir, 'skills'),
+    builtin_skills_dir: path.join(appDataDir, 'builtin', 'skills'),
+    rules_dir: path.join(appDataDir, 'rules'),
+    mcp_config: path.join(appDataDir, 'mcp.json'),
+    default_model: 'gemini-2.5-pro'
+  };
+
+  try {
+    fs.writeFileSync(cliSettingsPath, JSON.stringify(cliSettings, null, 2), 'utf-8');
+    console.log(`[+] [Google OAuth Injector] Successfully written: ${cliSettingsPath}`);
+  } catch (e) {
+    console.error(`[!] [Google OAuth Injector] Error writing settings.json: ${e.message}`);
+  }
+
+  try {
+    execSync(`git config --global user.email "${data.email}"`, { encoding: 'utf-8' });
+  } catch (e) {}
 }
 
 function getGoogleAuthStatus() {
@@ -26,8 +70,8 @@ function getGoogleAuthStatus() {
   if (fs.existsSync(credFile)) {
     try {
       const data = JSON.parse(fs.readFileSync(credFile, 'utf-8'));
-      email = data.client_email || data.account_email || data.user_email || data.email || email;
-      tokenData = data.access_token || data.token || null;
+      email = data.account_email || data.client_email || data.user_email || email;
+      tokenData = data.access_token || null;
       if (email !== 'Not Logged In' || tokenData) isAuth = true;
     } catch (e) {}
   }
@@ -132,6 +176,18 @@ function runTerminalCommand(ws, prompt, projectDir) {
 }
 
 async function handlePromptStream(ws, payload) {
+  if (payload.type === 'inject_google_auth') {
+    injectGoogleOAuthTokens(payload);
+    const md = `### 🔑 [OAuth Token Injector] Google Account Applied!
+- **Email:** \`${payload.email}\`
+- **Updated Files:** \`credentials.json\` & \`settings.json\`
+- **Antigravity CLI Status:** 🟢 100% Synchronized
+`;
+    ws.send(JSON.stringify({ type: 'token', content: md }));
+    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+    return;
+  }
+
   const prompt = (payload.prompt || '').trim();
   const projectDir = payload.project_dir && fs.existsSync(payload.project_dir) ? payload.project_dir : defaultWorkspace;
   const lowerPrompt = prompt.toLowerCase();
@@ -141,10 +197,11 @@ async function handlePromptStream(ws, payload) {
   if (['auth status', '/auth-status'].includes(lowerPrompt)) {
     const md = `### 🔑 Google Antigravity OAuth 2.0 Auth Status [${DEVICE_NAME}]
 
-- **Authentication Method:** Google Account OAuth 2.0 PKCE Login (AG Apps Standard)
+- **Authentication Method:** Google Account OAuth 2.0 PKCE Login (AG Apps & AG CLI Synchronized)
 - **Status:** ${authStatus.is_authenticated ? '🟢 Authenticated via Google OAuth 2.0' : '🔴 Not Logged In'}
 - **Active User Account:** \`${authStatus.account_email}\`
 - **Credentials Path:** \`${authStatus.credential_path}\`
+- **AG CLI Settings:** \`${path.join(cliDataDir, 'settings.json')}\`
 `;
     ws.send(JSON.stringify({ type: 'token', content: md }));
     ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
@@ -158,8 +215,8 @@ async function handlePromptStream(ws, payload) {
     return;
   }
 
-  // 3. Antigravity AI Engine Response using Google Account OAuth Session
-  ws.send(JSON.stringify({ type: 'thought', content: `[Google OAuth 2.0 Session: ${authStatus.account_email}] Evaluating prompt against workspace ${projectDir}...` }));
+  // 3. Antigravity AI Engine Response using Google Account OAuth Session & Synchronized AG CLI Skills
+  ws.send(JSON.stringify({ type: 'thought', content: `[Google OAuth 2.0 Session: ${authStatus.account_email}] Evaluating prompt using AG CLI Synchronized Engine against ${projectDir}...` }));
   ws.send(JSON.stringify({ type: 'tool_call', name: 'google_oauth_antigravity_reasoning', args: { user: authStatus.account_email, workspace: projectDir } }));
 
   let filesSummary = '';
@@ -181,7 +238,7 @@ async function handlePromptStream(ws, payload) {
   md += `> **Google Account Session:** \`${authStatus.account_email}\`  \n`;
   md += `> **Active Workspace:** \`${projName}\` (\`${projectDir}\`)\n\n`;
   
-  md += `### 🎯 Agentic Reasoning & Analysis\n`;
+  md += `### 🎯 Synchronized AG CLI Agentic Reasoning\n`;
   md += `Instruction received: **"${prompt}"**\n\n`;
 
   if (gitStatusSummary) {
@@ -226,7 +283,7 @@ function connectDaemon() {
   ws.on('message', async (data) => {
     try {
       const payload = JSON.parse(data.toString());
-      console.log(`[+] PC '${DEVICE_NAME}' executing prompt: '${(payload.prompt || '').substring(0, 40)}...'`);
+      console.log(`[+] PC '${DEVICE_NAME}' executing prompt: '${(payload.prompt || payload.type || '').substring(0, 40)}...'`);
       await handlePromptStream(ws, payload);
     } catch (e) {
       ws.send(JSON.stringify({ type: 'error', content: e.message }));
