@@ -18,37 +18,16 @@ if (!fs.existsSync(appDataDir)) fs.mkdirSync(appDataDir, { recursive: true });
 if (!fs.existsSync(cliDataDir)) fs.mkdirSync(cliDataDir, { recursive: true });
 if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
 
-function checkAgCliInstalled() {
+function getCliExecutable() {
   try {
-    execSync('where agy', { encoding: 'utf-8' });
-    return true;
-  } catch (e) {
-    const agyLocal = path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'agy.cmd');
-    return fs.existsSync(agyLocal);
-  }
-}
+    execSync('where gemini', { encoding: 'utf-8' });
+    return 'gemini';
+  } catch (e) {}
 
-function autoInstallAgCli(ws) {
-  if (checkAgCliInstalled()) return true;
+  const geminiCmd = path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'gemini.cmd');
+  if (fs.existsSync(geminiCmd)) return `"${geminiCmd}"`;
 
-  if (ws) {
-    ws.send(JSON.stringify({ type: 'thought', content: `[Auto-Installer] Antigravity CLI (agy) not detected on ${DEVICE_NAME}. Auto-installing globally...` }));
-  }
-  console.log(`[+] Auto-installing Antigravity CLI (agy) globally on ${DEVICE_NAME}...`);
-
-  try {
-    execSync('npm install -g @google/antigravity-cli --suppress-warnings', { encoding: 'utf-8', stdio: 'ignore' });
-    if (ws) ws.send(JSON.stringify({ type: 'thought', content: `[Auto-Installer] 🟢 Antigravity CLI (agy) installed successfully!` }));
-    return true;
-  } catch (err) {
-    try {
-      execSync('npm install -g agy --suppress-warnings', { encoding: 'utf-8', stdio: 'ignore' });
-      return true;
-    } catch (e) {
-      if (ws) ws.send(JSON.stringify({ type: 'thought', content: `[Auto-Installer] ⚠️ Note: Global npm install requires admin permissions or npx runner.` }));
-      return false;
-    }
-  }
+  return 'npx --yes @google/gemini-cli';
 }
 
 function getGoogleAuthStatus() {
@@ -80,11 +59,14 @@ function getGoogleAuthStatus() {
 }
 
 function executePureAgCli(ws, prompt, projectDir) {
-  autoInstallAgCli(ws);
-  ws.send(JSON.stringify({ type: 'thought', content: `[Pure AG CLI Pipe] Executing \`agy --prompt "${prompt}"\` in ${projectDir}...` }));
+  const cliExec = getCliExecutable();
+  ws.send(JSON.stringify({ type: 'thought', content: `[Pure Antigravity CLI Pipe] Spawning \`${cliExec} -p "${prompt}" --yolo\` in ${projectDir}...` }));
 
-  const agyCmd = checkAgCliInstalled() ? 'agy' : 'npx agy';
-  const child = spawn(agyCmd, ['--prompt', prompt], { cwd: projectDir, shell: true });
+  const isNpx = cliExec.startsWith('npx');
+  const bin = isNpx ? 'npx' : cliExec.replace(/"/g, '');
+  const args = isNpx ? ['--yes', '@google/gemini-cli', '-p', prompt, '-y'] : ['-p', prompt, '-y'];
+
+  const child = spawn(bin, args, { cwd: projectDir, shell: true });
 
   child.stdout.on('data', (chunk) => {
     ws.send(JSON.stringify({ type: 'token', content: chunk.toString('utf-8') }));
@@ -99,7 +81,7 @@ function executePureAgCli(ws, prompt, projectDir) {
   });
 
   child.on('error', (err) => {
-    ws.send(JSON.stringify({ type: 'token', content: `⚠️ AG CLI Execution Error: ${err.message}\n` }));
+    ws.send(JSON.stringify({ type: 'token', content: `⚠️ CLI Execution Error: ${err.message}\n` }));
     ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
   });
 }
@@ -114,7 +96,7 @@ async function handlePromptStream(ws, payload) {
   if (['auth status', '/auth-status'].includes(lowerPrompt)) {
     const md = `### 🟢 Antigravity CLI Engine Status [${DEVICE_NAME}]
 
-- **AG CLI Installed:** ${checkAgCliInstalled() ? '🟢 YES (`agy`)' : '🟡 Auto-Installing via npm'}
+- **CLI Executable:** \`${getCliExecutable()}\`
 - **Authentication:** Google OAuth 2.0 PKCE Login
 - **Google Account:** \`${authStatus.account_email}\`
 - **Target PC:** \`${DEVICE_NAME}\`
@@ -132,22 +114,22 @@ async function handlePromptStream(ws, payload) {
 function connectDaemon() {
   const tunnelUrl = `${VPS_SERVER_URL.replace(/\/$/, '')}/ws/tunnel?auth_password=${BRIDGE_PASSWORD}&device_name=${DEVICE_NAME}`;
   console.log(`============================================================`);
-  console.log(` [Antigravity Headless Pure AG CLI Pipe Daemon Client]`);
+  console.log(` [Antigravity Headless Pure CLI Pipe Daemon Client]`);
   console.log(`============================================================`);
   console.log(`[+] Device Registered: '${DEVICE_NAME}'`);
-  console.log(`[+] AG CLI Auto-Installer Engine: Active`);
+  console.log(`[+] CLI Executable Target: ${getCliExecutable()}`);
   console.log(`[+] Outbound connecting to VPS Server: ${VPS_SERVER_URL} ...`);
 
   const ws = new WebSocket(tunnelUrl);
 
   ws.on('open', () => {
-    console.log(`[+] PC '${DEVICE_NAME}' connected to VPS Tunnel! Pure AG CLI Pipe Ready.`);
+    console.log(`[+] PC '${DEVICE_NAME}' connected to VPS Tunnel! Pure CLI Pipe Ready.`);
   });
 
   ws.on('message', async (data) => {
     try {
       const payload = JSON.parse(data.toString());
-      console.log(`[+] PC '${DEVICE_NAME}' executing AG CLI prompt: '${(payload.prompt || payload.type || '').substring(0, 40)}...'`);
+      console.log(`[+] PC '${DEVICE_NAME}' executing CLI prompt: '${(payload.prompt || payload.type || '').substring(0, 40)}...'`);
       await handlePromptStream(ws, payload);
     } catch (e) {
       ws.send(JSON.stringify({ type: 'error', content: e.message }));
