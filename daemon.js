@@ -77,6 +77,54 @@ function runTerminalCommand(ws, prompt, projectDir) {
   });
 }
 
+function getSystemHardwareSummary() {
+  const totalMemGB = (os.totalmem() / (1024 * 1024 * 1024)).toFixed(2);
+  const freeMemGB = (os.freemem() / (1024 * 1024 * 1024)).toFixed(2);
+  const usedMemGB = (totalMemGB - freeMemGB).toFixed(2);
+  const ramPercent = (((totalMemGB - freeMemGB) / totalMemGB) * 100).toFixed(1);
+  const cpus = os.cpus();
+  const cpuModel = cpus.length > 0 ? cpus[0].model.trim() : 'Unknown CPU';
+
+  return `System Status for ${DEVICE_NAME} (${os.platform()}):
+- CPU: ${cpuModel} (${cpus.length} cores)
+- Total RAM: ${totalMemGB} GB
+- Used RAM: ${usedMemGB} GB (${ramPercent}%)
+- Free RAM: ${freeMemGB} GB`;
+}
+
+async function queryGoogleOAuthAI(prompt, projectDir, authStatus) {
+  const systemInstruction = `You are Antigravity, a powerful agentic AI coding assistant designed by Google DeepMind on host ${DEVICE_NAME} in workspace ${projectDir}. Respond naturally, concisely, and accurately as a senior software engineer.`;
+
+  const body = {
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: `${systemInstruction}\n\nUser Request: ${prompt}` }]
+      }
+    ]
+  };
+
+  // Try Google OAuth 2.0 Access Token Authorization
+  if (authStatus.access_token) {
+    try {
+      const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authStatus.access_token}`
+        },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
+        return data.candidates[0].content.parts[0].text;
+      }
+    } catch (e) {}
+  }
+
+  return null;
+}
+
 async function handlePromptStream(ws, payload) {
   const prompt = (payload.prompt || '').trim();
   const projectDir = payload.project_dir && fs.existsSync(payload.project_dir) ? payload.project_dir : defaultWorkspace;
@@ -98,7 +146,7 @@ async function handlePromptStream(ws, payload) {
     return;
   }
 
-  // 2. Strict Check: ONLY show warning note card if AG CLI Engine is DEAD / STOPPED!
+  // 2. Warning Card ONLY if CLI Engine is DEAD / STOPPED
   if (agCliStatus !== 'running') {
     const notStartedMd = `### ⚠️ Antigravity CLI (\`agy\`) is NOT started on ${DEVICE_NAME}
 
@@ -115,14 +163,44 @@ To process prompts, **Antigravity CLI (\`agy\`)** engine must be started on your
     return;
   }
 
-  // 3. Direct Terminal Commands
+  // 3. Direct Terminal Subprocess Execution
   const isTerminal = /^(git|npm|python|node|pip|dir|ls|cargo|go|make|docker|pytest|npx|agy)\b/.test(prompt) || /\.(py|js|sh)$/.test(prompt);
   if (isTerminal) {
     runTerminalCommand(ws, prompt, projectDir);
     return;
   }
 
-  // 4. Pure Clean AG UI Conversational Response (NO NOTE CARDS WHEN RUNNING!)
+  // 4. Hardware System Status Intent Execution
+  const isSystemStatusIntent = /(ram|memory|cpu|hardware|computer status|pc status|system status|specs|resources)/i.test(prompt);
+  if (isSystemStatusIntent) {
+    ws.send(JSON.stringify({ type: 'thought', content: `Executing hardware telemetry check on ${DEVICE_NAME}...` }));
+    ws.send(JSON.stringify({ type: 'tool_call', name: 'system_hardware_telemetry', args: { device: DEVICE_NAME } }));
+
+    const hwSummary = getSystemHardwareSummary();
+    const words = hwSummary.split(' ');
+    for (const w of words) {
+      ws.send(JSON.stringify({ type: 'token', content: w + ' ' }));
+      await new Promise(r => setTimeout(r, 12));
+    }
+    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+    return;
+  }
+
+  // 5. Try Real Google OAuth 2.0 AI Stream
+  ws.send(JSON.stringify({ type: 'thought', content: `[Antigravity AG CLI Engine] Evaluating prompt via Google Account Session (${authStatus.account_email})...` }));
+
+  const oauthAiResponse = await queryGoogleOAuthAI(prompt, projectDir, authStatus);
+  if (oauthAiResponse) {
+    const words = oauthAiResponse.split(' ');
+    for (const w of words) {
+      ws.send(JSON.stringify({ type: 'token', content: w + ' ' }));
+      await new Promise(r => setTimeout(r, 12));
+    }
+    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+    return;
+  }
+
+  // Conversational Fallback
   const greetings = ['hy', 'hi', 'hello', 'halo', 'hey', 'ping', 'test'];
   if (greetings.includes(lowerPrompt)) {
     const greetingMd = `Hello! How can I help you with your project today?`;
@@ -131,11 +209,7 @@ To process prompts, **Antigravity CLI (\`agy\`)** engine must be started on your
     return;
   }
 
-  // Pure Clean AI Response Stream
-  ws.send(JSON.stringify({ type: 'thought', content: `[AG CLI Engine] Processing prompt: "${prompt}"...` }));
-
   let cleanResponse = `I received your request: **"${prompt}"**.\n\nI am ready to inspect, edit, or execute tasks in your workspace \`${path.basename(projectDir)}\`. What specific changes or commands would you like me to perform?`;
-
   const words = cleanResponse.split(' ');
   for (const w of words) {
     ws.send(JSON.stringify({ type: 'token', content: w + ' ' }));
