@@ -31,14 +31,12 @@ function checkAgCliAvailability() {
     execSync('where agy', { encoding: 'utf-8' });
     return true;
   } catch (e) {
-    // Check if agy.exe or node cli script exists in user profile
     const agyLocal = path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'agy.cmd');
     return fs.existsSync(agyLocal);
   }
 }
 
 function startAgCliEngine(ws) {
-  const isAvailable = checkAgCliAvailability();
   ws.send(JSON.stringify({ type: 'thought', content: `Checking Antigravity CLI (agy) availability on ${DEVICE_NAME}...` }));
 
   if (agCliProcess && !agCliProcess.killed) {
@@ -101,6 +99,26 @@ function getGoogleAuthStatus() {
   }
 
   return { is_authenticated: isAuth, account_email: email, credential_path: credFile, token_data: tokenData };
+}
+
+function getSystemHardwareTelemetry() {
+  const totalMemGB = (os.totalmem() / (1024 * 1024 * 1024)).toFixed(2);
+  const freeMemGB = (os.freemem() / (1024 * 1024 * 1024)).toFixed(2);
+  const usedMemGB = (totalMemGB - freeMemGB).toFixed(2);
+  const ramPercent = (((totalMemGB - freeMemGB) / totalMemGB) * 100).toFixed(1);
+  const cpus = os.cpus();
+  const cpuModel = cpus.length > 0 ? cpus[0].model.trim() : 'Unknown CPU';
+
+  return {
+    platform: os.platform(),
+    hostname: os.hostname(),
+    cpu_model: cpuModel,
+    cpu_cores: cpus.length,
+    total_ram_gb: totalMemGB,
+    free_ram_gb: freeMemGB,
+    used_ram_gb: usedMemGB,
+    ram_usage_percent: ramPercent
+  };
 }
 
 function runTerminalCommand(ws, prompt, projectDir) {
@@ -176,14 +194,50 @@ To process prompts, **Antigravity CLI (\`agy\`)** engine must be started on your
     return;
   }
 
-  // 3. Direct Terminal Commands Execution
+  // 3. System Hardware & Telemetry Intent ("ram", "memory", "cpu", "computer status", "hardware", "specs")
+  const isSystemStatusIntent = /(ram|memory|ram usage|cpu|hardware|computer status|system status|specs|resources)/i.test(prompt);
+  if (isSystemStatusIntent) {
+    ws.send(JSON.stringify({ type: 'thought', content: `Querying hardware metrics and memory telemetry on ${DEVICE_NAME}...` }));
+    ws.send(JSON.stringify({ type: 'tool_call', name: 'system_hardware_telemetry', args: { device: DEVICE_NAME } }));
+
+    const hw = getSystemHardwareTelemetry();
+    let md = `## 💻 System Hardware & Memory Telemetry [${DEVICE_NAME}]\n\n`;
+    md += `> [!IMPORTANT]\n`;
+    md += `> **RAM Usage:** **${hw.used_ram_gb} GB** / **${hw.total_ram_gb} GB** (**${hw.ram_usage_percent}%**)\n\n`;
+
+    md += `### 📊 System Metrics Summary\n`;
+    md += `| Metric | Value |\n`;
+    md += `| :--- | :--- |\n`;
+    md += `| **Host Computer** | \`${hw.hostname}\` (\`${hw.platform}\`) |\n`;
+    md += `| **CPU Architecture** | \`${hw.cpu_model}\` (${hw.cpu_cores} Cores) |\n`;
+    md += `| **Total Physical RAM** | \`${hw.total_ram_gb} GB\` |\n`;
+    md += `| **Used Memory** | \`${hw.used_ram_gb} GB\` |\n`;
+    md += `| **Available Free Memory** | \`${hw.free_ram_gb} GB\` |\n`;
+    md += `| **RAM Usage Percentage** | \`${hw.ram_usage_percent}%\` |\n\n`;
+
+    if (parseFloat(hw.ram_usage_percent) > 85) {
+      md += `> [!WARNING]\n`;
+      md += `> RAM usage is currently high (${hw.ram_usage_percent}%). Consider closing heavy background tasks if performing intensive model training.\n`;
+    }
+
+    const words = md.split(' ');
+    for (const w of words) {
+      ws.send(JSON.stringify({ type: 'token', content: w + ' ' }));
+      await new Promise(r => setTimeout(r, 12));
+    }
+
+    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+    return;
+  }
+
+  // 4. Direct Terminal Commands Execution
   const isTerminal = /^(git|npm|python|node|pip|dir|ls|cargo|go|make|docker|pytest|npx|agy)\b/.test(prompt) || /\.(py|js|sh)$/.test(prompt);
   if (isTerminal) {
     runTerminalCommand(ws, prompt, projectDir);
     return;
   }
 
-  // 4. Pure Conversational AI Stream (Natural AG Response - No Template Dumps!)
+  // 5. Pure Conversational AI Stream (@google/genai or Natural AI Response)
   ws.send(JSON.stringify({ type: 'thought', content: `[Antigravity CLI Engine active on ${DEVICE_NAME}] Processing: "${prompt}"...` }));
 
   if (GEMINI_API_KEY && GoogleGenAI) {
