@@ -125,19 +125,23 @@
       </div>
     </header>
 
-    <!-- Sub-Header: Multi-PC & Project Selector Bar -->
+    <!-- Sub-Header: Multi-PC & Saved Workspace Selector Bar -->
     <div class="project-bar">
-      <div class="project-selector-group">
+      <div class="project-selector-group" style="display:flex; align-items:center; gap:8px;">
         <label for="deviceSelect">🖥️ Target PC:</label>
-        <select id="deviceSelect" class="project-select" style="max-width: 200px;">
+        <select id="deviceSelect" class="project-select" style="max-width: 180px;">
           <option value="">Scanning PCs...</option>
         </select>
 
-        <label for="projectSelect" style="margin-left: 10px;">📁 Workspace:</label>
+        <label for="projectSelect" style="margin-left: 6px;">📁 Workspace:</label>
         <select id="projectSelect" class="project-select">
           <option value="">Loading projects...</option>
         </select>
         <input type="text" id="customProjectPath" placeholder="Or enter custom path e.g. C:\path\to\project" class="custom-path-input" />
+
+        <button id="saveWorkspaceBtn" class="btn btn-secondary icon-btn" style="padding:4px 10px; font-size:0.75rem;" title="Save selected directory as default workspace">
+          💾 Save Default
+        </button>
       </div>
 
       <div class="direct-mode-toggle">
@@ -168,7 +172,7 @@
               <div class="quick-prompts">
                 <button class="chip-btn slash-chip" data-prompt="/auth-status">🔑 Check Auth Status</button>
                 <button class="chip-btn slash-chip" data-prompt="agy auth login">🌐 Google Auth Login</button>
-                <button class="chip-btn slash-chip" data-prompt="/auth-logout">🚪 Logout Google Account</button>
+                <button class="chip-btn slash-chip" data-prompt="/workspace">💾 Check Saved Workspace</button>
                 <button class="chip-btn slash-chip" data-prompt="/teamwork-preview Spawn subagents">👥 /teamwork-preview</button>
               </div>
             </div>
@@ -185,6 +189,7 @@
             <div class="slash-item" data-cmd="/browser ">🌐 <strong>/browser</strong> - Run browser automation & testing</div>
             <div class="slash-item" data-cmd="/grill-me">🔥 <strong>/grill-me</strong> - Interactive design & plan interview</div>
             <div class="slash-item" data-cmd="/learn ">🧠 <strong>/learn</strong> - Persist custom preferences/instructions</div>
+            <div class="slash-item" data-cmd="/workspace">💾 <strong>/workspace</strong> - View and save active workspace directory</div>
             <div class="slash-item" data-cmd="/auth-status">🔑 <strong>/auth-status</strong> - Check active Google Account for target PC</div>
             <div class="slash-item" data-cmd="/auth-logout">🚪 <strong>/auth-logout</strong> - Log out Google Account from target PC</div>
             <div class="slash-item" data-cmd="/git-status">🌿 <strong>/git-status</strong> - View target PC git workspace status</div>

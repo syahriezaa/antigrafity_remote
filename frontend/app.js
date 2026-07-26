@@ -1,4 +1,4 @@
-// Antigravity Remote Bridge - Client JS with Configured Google Client ID & Clean UI Bubbles
+// Antigravity Remote Bridge - Client JS with Workspace Persistence & Google Account Sync
 document.addEventListener("DOMContentLoaded", () => {
   let ws = null;
   let currentAgentBubble = null;
@@ -46,10 +46,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const logsFeed = document.getElementById("logsFeed");
   const refreshLogsBtn = document.getElementById("refreshLogsBtn");
 
-  // Multi-PC & Project Selector Elements
+  // Multi-PC & Workspace Elements
   const deviceSelect = document.getElementById("deviceSelect");
   const projectSelect = document.getElementById("projectSelect");
   const customProjectPath = document.getElementById("customProjectPath");
+  const saveWorkspaceBtn = document.getElementById("saveWorkspaceBtn");
   const directModeCheck = document.getElementById("directModeCheck");
 
   // Slash Menu Elements
@@ -85,6 +86,25 @@ document.addEventListener("DOMContentLoaded", () => {
     meetingTable: { top: 150, left: 140 },
     coffeeBar: { top: 310, left: 150 }
   };
+
+  // Restore Saved Workspace from localStorage
+  const savedWorkspace = localStorage.getItem("saved_workspace") || "";
+  if (savedWorkspace && customProjectPath) {
+    customProjectPath.value = savedWorkspace;
+  }
+
+  // Workspace Save Button Handler
+  if (saveWorkspaceBtn) {
+    saveWorkspaceBtn.addEventListener("click", () => {
+      const activePath = customProjectPath ? customProjectPath.value.trim() || projectSelect.value : projectSelect.value;
+      if (activePath) {
+        localStorage.setItem("saved_workspace", activePath);
+        alert(`💾 Default Workspace Saved:\n\n${activePath}\n\nThis workspace directory will now be automatically restored whenever you open the app!`);
+      } else {
+        alert("Please select or enter a valid workspace directory path first.");
+      }
+    });
+  }
 
   function createUserBubble(text) {
     const div = document.createElement("div");
@@ -361,7 +381,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Fetch Projects List
+  // Fetch Projects List & Auto-Select Saved Workspace
   async function fetchProjects() {
     try {
       const res = await fetch("/api/projects");
@@ -382,6 +402,20 @@ document.addEventListener("DOMContentLoaded", () => {
           opt.textContent = `📁 ${p.name}`;
           projectSelect.appendChild(opt);
         });
+      }
+
+      if (savedWorkspace) {
+        let matchFound = false;
+        for (let i = 0; i < projectSelect.options.length; i++) {
+          if (projectSelect.options[i].value === savedWorkspace) {
+            projectSelect.selectedIndex = i;
+            matchFound = true;
+            break;
+          }
+        }
+        if (!matchFound && customProjectPath) {
+          customProjectPath.value = savedWorkspace;
+        }
       }
     } catch (err) {
       projectSelect.innerHTML = '<option value="">Default Workspace</option>';
@@ -534,7 +568,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const prompt = promptInput.value.trim();
     if (!prompt) return;
 
-    const projectDir = customProjectPath ? customProjectPath.value.trim() || projectSelect.value : "";
+    const projectDir = customProjectPath ? customProjectPath.value.trim() || projectSelect.value : projectSelect.value;
     const targetDevice = deviceSelect ? deviceSelect.value : "";
     const directMode = directModeCheck ? directModeCheck.checked : true;
 

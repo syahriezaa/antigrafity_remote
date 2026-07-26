@@ -104,7 +104,23 @@ async function handlePromptStream(ws, payload) {
     return;
   }
 
-  // 2. Pure Direct Execution of Official AG CLI Binary (100% Zero Hardcoded Logic!)
+  // 2. Active Workspace Slash Command
+  if (['/workspace', 'workspace status', '/set-workspace'].includes(lowerPrompt)) {
+    const md = `### 📁 Active Antigravity Workspace Status [${DEVICE_NAME}]
+
+- **Active Workspace Path:** \`${projectDir}\`
+- **Directory Exists:** ${fs.existsSync(projectDir) ? '🟢 YES' : '🔴 NO'}
+- **Default Fallback Scratch:** \`${defaultWorkspace}\`
+- **AG CLI Settings File:** \`${path.join(cliDataDir, 'settings.json')}\`
+
+*Tip: Click the **💾 Save Default** button in the Web UI bar to save this workspace directory as your default!*
+`;
+    ws.send(JSON.stringify({ type: 'token', content: md }));
+    ws.send(JSON.stringify({ type: 'status', status: 'completed' }));
+    return;
+  }
+
+  // 3. Pure Direct Execution of Official AG CLI Binary (100% Zero Hardcoded Logic!)
   executePureAgCliBinary(ws, prompt, projectDir);
 }
 
